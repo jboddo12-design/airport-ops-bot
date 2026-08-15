@@ -5,11 +5,13 @@ const WEBHOOK_URL = process.env.DISCORD_WEBHOOK_URL;
 // KFLL — Fort Lauderdale-Hollywood International Airport
 const KFLL_LAT = 26.0726;
 const KFLL_LON = -80.1527;
-
-// Search radius in nautical miles
 const RADIUS_NM = 25;
 
-let lastAircraft = new Set();
+// JetBlue ICAO callsign prefix
+const JETBLUE_PREFIX = "JBU";
+
+// Remember aircraft we've already posted
+const postedAircraft = new Map();
 
 async function getAircraft() {
   const url =
@@ -37,64 +39,97 @@ function clean(value) {
   return value ? String(value).trim() : "N/A";
 }
 
+function isJetBlue(plane) {
+  const callsign = clean(plane.flight).toUpperCase();
+
+  return callsign.startsWith(JETBLUE_PREFIX);
+}
+
+function formatAltitude(altitude) {
+  if (altitude === null || altitude === undefined) {
+    return "N/A";
+  }
+
+  return `${Number(altitude).toLocaleString()} ft`;
+}
+
+function formatSpeed(speed) {
+  if (speed === null || speed === undefined) {
+    return "N/A";
+  }
+
+  return `${Math.round(Number(speed))} kt`;
+}
+
 async function checkKFLL() {
   try {
     const aircraft = await getAircraft();
 
-    console.log(`✈️ Aircraft detected around KFLL: ${aircraft.length}`);
+    const jetblueAircraft = aircraft.filter(isJetBlue);
 
-    for (const plane of aircraft) {
-      const callsign = clean(plane.flight);
+    console.log(
+      `🔵 JetBlue aircraft around KFLL: ${jetblueAircraft.length}`
+    );
+
+    for (const plane of jetblueAircraft) {
+      const callsign = clean(plane.flight).toUpperCase();
       const registration = clean(plane.r);
-      const type = clean(plane.t);
-      const altitude = plane.alt_baro ?? "N/A";
-      const speed = plane.gs ?? "N/A";
+      const aircraftType = clean(plane.t);
+      const altitude = formatAltitude(plane.alt_baro);
+      const speed = formatSpeed(plane.gs);
 
-      const id = `${plane.hex}-${callsign}`;
+      const hex = clean(plane.hex);
 
-      if (lastAircraft.has(id)) {
+      // Unique ID for this aircraft/flight
+      const aircraftId = `${hex}-${callsign}`;
+
+      // Don't post the same flight repeatedly
+      if (postedAircraft.has(aircraftId)) {
         continue;
       }
 
-      lastAircraft.add(id);
-
-      // Keep memory from growing forever
-      if (lastAircraft.size > 500) {
-        lastAircraft = new Set(
-          Array.from(lastAircraft).slice(-250)
-        );
-      }
+      postedAircraft.set(aircraftId, Date.now());
 
       const message =
-        `✈️ **KFLL AIRPORT OPERATIONS**\n` +
+        `🔵 **JETBLUE | KFLL OPERATIONS**\n` +
         `━━━━━━━━━━━━━━━━━━━━\n` +
-        `🛩️ **Flight:** ${callsign}\n` +
+        `✈️ **Flight:** ${callsign}\n` +
         `🏷️ **Registration:** ${registration}\n` +
-        `✈️ **Aircraft:** ${type}\n` +
-        `📏 **Altitude:** ${altitude} ft\n` +
-        `💨 **Speed:** ${speed} kt\n` +
-        `📡 **Status:** Live ADS-B contact\n` +
+        `🛩️ **Aircraft:** ${aircraftType}\n` +
+        `📏 **Altitude:** ${altitude}\n` +
+        `💨 **Speed:** ${speed}\n` +
+        `📡 **Status:** Live KFLL ADS-B contact\n` +
+        `📍 **Area:** KFLL / South Florida\n` +
         `━━━━━━━━━━━━━━━━━━━━`;
 
       await sendDiscord(message);
 
-      console.log(`📡 Posted: ${callsign}`);
+      console.log(`🔵 JetBlue posted: ${callsign}`);
     }
+
+    // Clean old entries after 6 hours
+    const sixHours = 6 * 60 * 60 * 1000;
+    const now = Date.now();
+
+    for (const [id, timestamp] of postedAircraft.entries()) {
+      if (now - timestamp > sixHours) {
+        postedAircraft.delete(id);
+      }
+    }
+
   } catch (error) {
     console.error(
-      "KFLL data error:",
+      "KFLL JetBlue data error:",
       error.response?.data || error.message
     );
   }
 }
 
-console.log("✈️ KFLL Airport Operations Bot starting...");
-console.log("📡 Connecting to Airplanes.live...");
+console.log("🔵 KFLL JetBlue Operations Bot starting...");
+console.log("📡 Connecting to ADSB.lol...");
 console.log("📢 Discord webhook configured:", !!WEBHOOK_URL);
 
-// Check immediately
 checkKFLL();
 
-// Airplanes.live documents a 1 request/second limit.
-// We poll every 15 seconds to stay comfortably below that.
+// Check every 15 seconds
 setInterval(checkKFLL, 15000);
