@@ -8,7 +8,7 @@ const discordClient = new Client({
   ]
 });
 
-discordClient.once("ready", () => {
+discordClient.once("clientReady", () => {
   console.log(`🟢 Discord bot online as ${discordClient.user.tag}`);
 
   discordClient.user.setPresence({
