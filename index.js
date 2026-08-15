@@ -1,27 +1,124 @@
 const axios = require("axios");
 
 const WEBHOOK_URL = process.env.DISCORD_WEBHOOK_URL;
+const FLIGHTAWARE_API_KEY = process.env.FLIGHTAWARE_API_KEY;
 
-// KFLL — Fort Lauderdale-Hollywood International Airport
-const KFLL_LAT = 26.0726;
-const KFLL_LON = -80.1527;
-const RADIUS_NM = 25;
+const AIRPORT = "KFLL";
 
-// JetBlue ICAO callsign prefix
-const JETBLUE_PREFIX = "JBU";
+// Remember flights we've already announced
+const announcedFlights = new Set();
 
-// Remember aircraft we've already posted
-const postedAircraft = new Map();
+function clean(value) {
+  if (value === null || value === undefined || value === "") {
+    return "N/A";
+  }
 
-async function getAircraft() {
+  return String(value).trim();
+}
+
+function isJetBlue(flight) {
+  const ident = clean(flight.ident).toUpperCase();
+
+  // FlightAware may return B6/JBU identifiers depending on the record.
+  return (
+    ident.startsWith("B6") ||
+    ident.startsWith("JBU")
+  );
+}
+
+function formatTime(unixTime) {
+  if (!unixTime || Number(unixTime) <= 0) {
+    return "N/A";
+  }
+
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false
+  }).format(new Date(Number(unixTime) * 1000)) + " EDT";
+}
+
+function formatDateTime(unixTime) {
+  if (!unixTime || Number(unixTime) <= 0) {
+    return "N/A";
+  }
+
+  return new Intl.DateTimeFormat("en-US", {
+    timeZone: "America/New_York",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false
+  }).format(new Date(Number(unixTime) * 1000)) + " EDT";
+}
+
+async function getRecentArrivals() {
   const url =
-    `https://api.adsb.lol/v2/point/${KFLL_LAT}/${KFLL_LON}/${RADIUS_NM}`;
+    `https://aeroapi.flightaware.com/aeroapi/airports/${AIRPORT}/flights/arrivals`;
 
   const response = await axios.get(url, {
+    headers: {
+      "x-apikey": FLIGHTAWARE_API_KEY
+    },
+    params: {
+      max_pages: 1
+    },
     timeout: 15000
   });
 
-  return response.data.ac || [];
+  return response.data.arrivals || [];
+}
+
+async function getFlightDetails(faFlightId) {
+  if (!faFlightId) {
+    return null;
+  }
+
+  try {
+    const url =
+      `https://aeroapi.flightaware.com/aeroapi/flights/${encodeURIComponent(faFlightId)}`;
+
+    const response = await axios.get(url, {
+      headers: {
+        "x-apikey": FLIGHTAWARE_API_KEY
+      },
+      timeout: 15000
+    });
+
+    return response.data;
+  } catch (error) {
+    console.error(
+      "Flight details error:",
+      error.response?.data || error.message
+    );
+
+    return null;
+  }
+}
+
+async function getAirlineInfo(faFlightId) {
+  if (!faFlightId) {
+    return null;
+  }
+
+  try {
+    const url =
+      `https://aeroapi.flightaware.com/aeroapi/flights/${encodeURIComponent(faFlightId)}/airline`;
+
+    const response = await axios.get(url, {
+      headers: {
+        "x-apikey": FLIGHTAWARE_API_KEY
+      },
+      timeout: 15000
+    });
+
+    return response.data;
+  } catch (error) {
+    // Gate information isn't available for every flight.
+    return null;
+  }
 }
 
 async function sendDiscord(message) {
@@ -35,101 +132,176 @@ async function sendDiscord(message) {
   });
 }
 
-function clean(value) {
-  return value ? String(value).trim() : "N/A";
-}
-
-function isJetBlue(plane) {
-  const callsign = clean(plane.flight).toUpperCase();
-
-  return callsign.startsWith(JETBLUE_PREFIX);
-}
-
-function formatAltitude(altitude) {
-  if (altitude === null || altitude === undefined) {
-    return "N/A";
-  }
-
-  return `${Number(altitude).toLocaleString()} ft`;
-}
-
-function formatSpeed(speed) {
-  if (speed === null || speed === undefined) {
-    return "N/A";
-  }
-
-  return `${Math.round(Number(speed))} kt`;
-}
-
 async function checkKFLL() {
   try {
-    const aircraft = await getAircraft();
+    if (!FLIGHTAWARE_API_KEY) {
+      console.error("FLIGHTAWARE_API_KEY is missing.");
+      return;
+    }
 
-    const jetblueAircraft = aircraft.filter(isJetBlue);
+    const arrivals = await getRecentArrivals();
 
     console.log(
-      `🔵 JetBlue aircraft around KFLL: ${jetblueAircraft.length}`
+      `✈️ KFLL recent arrivals: ${arrivals.length}`
     );
 
-    for (const plane of jetblueAircraft) {
-      const callsign = clean(plane.flight).toUpperCase();
-      const registration = clean(plane.r);
-      const aircraftType = clean(plane.t);
-      const altitude = formatAltitude(plane.alt_baro);
-      const speed = formatSpeed(plane.gs);
+    // JetBlue only
+    const jetblueArrivals =
+      arrivals.filter(isJetBlue);
 
-      const hex = clean(plane.hex);
+    console.log(
+      `🔵 JetBlue arrivals found: ${jetblueArrivals.length}`
+    );
 
-      // Unique ID for this aircraft/flight
-      const aircraftId = `${hex}-${callsign}`;
+    for (const arrival of jetblueArrivals) {
 
-      // Don't post the same flight repeatedly
-      if (postedAircraft.has(aircraftId)) {
+      const ident =
+        clean(arrival.ident).toUpperCase();
+
+      const flightId =
+        clean(arrival.fa_flight_id);
+
+      /*
+       * We use the FlightAware flight ID when available
+       * so the same flight doesn't get announced twice.
+       */
+      const uniqueId =
+        flightId !== "N/A"
+          ? flightId
+          : `${ident}-${arrival.actualarrivaltime}`;
+
+      if (announcedFlights.has(uniqueId)) {
         continue;
       }
 
-      postedAircraft.set(aircraftId, Date.now());
+      // Only announce flights that actually arrived.
+      if (
+        !arrival.actualarrivaltime ||
+        Number(arrival.actualarrivaltime) <= 0
+      ) {
+        continue;
+      }
+
+      /*
+       * Make sure KFLL is actually the destination.
+       */
+      const destination =
+        clean(arrival.destination).toUpperCase();
+
+      if (
+        destination !== "KFLL" &&
+        destination !== "FLL"
+      ) {
+        continue;
+      }
+
+      announcedFlights.add(uniqueId);
+
+      // Get more detailed information
+      const details =
+        await getFlightDetails(flightId);
+
+      const airlineInfo =
+        await getAirlineInfo(flightId);
+
+      const flight =
+        details?.flights?.[0] || arrival;
+
+      const gate =
+        airlineInfo?.gate_dest ||
+        flight?.gate_dest ||
+        "Pending";
+
+      const terminal =
+        airlineInfo?.terminal_dest ||
+        flight?.terminal_dest ||
+        "Pending";
+
+      const registration =
+        airlineInfo?.tailnumber ||
+        flight?.registration ||
+        flight?.tailnumber ||
+        "N/A";
+
+      const aircraftType =
+        flight?.aircraft_type ||
+        flight?.aircrafttype ||
+        arrival.aircrafttype ||
+        "N/A";
+
+      const origin =
+        clean(
+          flight?.origin?.code ||
+          flight?.origin
+        );
+
+      const originName =
+        clean(
+          flight?.origin?.name ||
+          arrival.originName ||
+          arrival.origin
+        );
+
+      const landingTime =
+        formatDateTime(
+          arrival.actualarrivaltime
+        );
 
       const message =
-        `🔵 **JETBLUE | KFLL OPERATIONS**\n` +
+        `🛬 **JETBLUE ARRIVAL — KFLL**\n` +
         `━━━━━━━━━━━━━━━━━━━━\n` +
-        `✈️ **Flight:** ${callsign}\n` +
-        `🏷️ **Registration:** ${registration}\n` +
+        `🔵 **JETBLUE AIRWAYS**\n\n` +
+        `✈️ **Flight:** ${ident}\n` +
+        `📍 **Origin:** ${origin} — ${originName}\n` +
         `🛩️ **Aircraft:** ${aircraftType}\n` +
-        `📏 **Altitude:** ${altitude}\n` +
-        `💨 **Speed:** ${speed}\n` +
-        `📡 **Status:** Live KFLL ADS-B contact\n` +
-        `📍 **Area:** KFLL / South Florida\n` +
+        `🏷️ **Registration:** ${registration}\n` +
+        `🛬 **Status:** LANDED\n` +
+        `🚪 **Gate:** ${gate}\n` +
+        `🏢 **Terminal:** ${terminal}\n` +
+        `⏱️ **Landing:** ${landingTime}\n` +
+        `📡 **Source:** FlightAware AeroAPI\n` +
         `━━━━━━━━━━━━━━━━━━━━`;
 
       await sendDiscord(message);
 
-      console.log(`🔵 JetBlue posted: ${callsign}`);
-    }
-
-    // Clean old entries after 6 hours
-    const sixHours = 6 * 60 * 60 * 1000;
-    const now = Date.now();
-
-    for (const [id, timestamp] of postedAircraft.entries()) {
-      if (now - timestamp > sixHours) {
-        postedAircraft.delete(id);
-      }
+      console.log(
+        `🛬 JETBLUE LANDED: ${ident} | Gate: ${gate}`
+      );
     }
 
   } catch (error) {
     console.error(
-      "KFLL JetBlue data error:",
-      error.response?.data || error.message
+      "KFLL JetBlue arrival error:",
+      error.response?.data ||
+      error.message
     );
   }
 }
 
-console.log("🔵 KFLL JetBlue Operations Bot starting...");
-console.log("📡 Connecting to ADSB.lol...");
-console.log("📢 Discord webhook configured:", !!WEBHOOK_URL);
+console.log(
+  "🔵 JETBLUE KFLL OPERATIONS FEED"
+);
+
+console.log(
+  "🛬 ACTUAL ARRIVALS ONLY"
+);
+
+console.log(
+  "🚪 GATE DATA ENABLED"
+);
+
+console.log(
+  "📢 Discord webhook:",
+  !!WEBHOOK_URL
+);
+
+console.log(
+  "🔑 FlightAware API:",
+  !!FLIGHTAWARE_API_KEY
+);
 
 checkKFLL();
 
-// Check every 15 seconds
-setInterval(checkKFLL, 15000);
+// Check every 60 seconds.
+// AeroAPI is usage-based, so we don't want to hammer the API.
+setInterval(checkKFLL, 60000);
