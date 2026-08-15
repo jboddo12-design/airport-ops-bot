@@ -1,4 +1,30 @@
 const axios = require("axios");
+const { Client, GatewayIntentBits, ActivityType } = require("discord.js");
+const DISCORD_BOT_TOKEN = process.env.DISCORD_BOT_TOKEN;
+
+const discordClient = new Client({
+  intents: [
+    GatewayIntentBits.Guilds
+  ]
+});
+
+discordClient.once("ready", () => {
+  console.log(`🟢 Discord bot online as ${discordClient.user.tag}`);
+
+  discordClient.user.setPresence({
+    activities: [
+      {
+        name: "JetBlue operations at KFLL",
+        type: ActivityType.Watching
+      }
+    ],
+    status: "online"
+  });
+});
+
+discordClient.login(DISCORD_BOT_TOKEN).catch((error) => {
+  console.error("❌ Discord login failed:", error.message);
+});
 
 // ===============================
 // DISCORD WEBHOOKS
