@@ -222,7 +222,18 @@ async function checkKFLL() {
     console.log(
       `🔵 JBU aircraft near KFLL: ${jetblue.length}`
     );
-
+jetblue.forEach((plane) => {
+  console.log(
+    `   ✈️ ${clean(plane.flight).toUpperCase()} | ` +
+    `ALT: ${plane.alt_baro} | ` +
+    `DIST: ${distanceNM(
+      Number(plane.lat),
+      Number(plane.lon),
+      KFLL_LAT,
+      KFLL_LON
+    ).toFixed(1)} NM`
+  );
+});
     const now = Date.now();
 
     for (const plane of jetblue) {
