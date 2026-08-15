@@ -13,7 +13,7 @@ let lastAircraft = new Set();
 
 async function getAircraft() {
   const url =
-    `https://api.airplanes.live/v2/point/${KFLL_LAT}/${KFLL_LON}/${RADIUS_NM}`;
+    `https://api.adsb.one/v2/point/${KFLL_LAT}/${KFLL_LON}/${RADIUS_NM}`;
 
   const response = await axios.get(url, {
     timeout: 15000
