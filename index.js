@@ -476,6 +476,108 @@ async function announceArrival(
       callsign
     )
   ) {
+    return;
+  }
+
+  const landingId =
+    `${hex}-${callsign}`;
+
+  // Prevent duplicate arrival alerts
+  if (
+    announcedLandings.has(
+      landingId
+    )
+  ) {
+    return;
+  }
+
+  announcedLandings.set(
+    landingId,
+    Date.now()
+  );
+
+  console.log(
+    `🛬 ARRIVAL: ${callsign} (${source})`
+  );
+
+  // Get FlightAware information
+  const flight =
+    await getFlightDetails(
+      callsign
+    );
+
+  // --------------------------------------------------
+  // AIRCRAFT INFORMATION
+  // --------------------------------------------------
+
+  let origin = "N/A";
+
+  let aircraft =
+    clean(plane.t);
+
+  let registration =
+    clean(plane.r);
+
+  if (flight) {
+
+    // FlightAware origin
+    origin =
+      flight.origin?.code ||
+      flight.origin?.airport_code ||
+      flight.origin?.iata ||
+      "N/A";
+
+    // Aircraft
+    aircraft =
+      flight.aircraft_type ||
+      flight.aircraft ||
+      aircraft;
+
+    // Registration
+    registration =
+      flight.registration ||
+      flight.tailnumber ||
+      registration;
+  }
+
+  // --------------------------------------------------
+  // DISCORD MESSAGE
+  // --------------------------------------------------
+
+  const message =
+    `🛬 **JETBLUE ARRIVAL — KFLL**\n` +
+    `━━━━━━━━━━━━━━━━━━━━\n` +
+    `🔵 **JETBLUE AIRWAYS**\n\n` +
+    `✈️ **Flight:** ${callsign}\n` +
+    `📍 **Origin:** ${origin}\n` +
+    `🛩️ **Aircraft:** ${aircraft}\n` +
+    `🏷️ **Registration:** ${registration}\n` +
+    `🛬 **Status:** LANDED\n` +
+    `⏱️ **Touchdown:** ${formatTime(
+      Date.now()
+    )}\n` +
+    `📡 **Detection:** ${source}\n` +
+    `━━━━━━━━━━━━━━━━━━━━`;
+
+  await sendDiscord(
+    ARRIVALS_WEBHOOK,
+    message
+  );
+}
+
+  const callsign =
+    clean(
+      plane.flight
+    ).toUpperCase();
+
+  const hex =
+    clean(plane.hex);
+
+  if (
+    !isJetBlueCallsign(
+      callsign
+    )
+  ) {
 
     return;
   }
