@@ -460,13 +460,15 @@ async function getKFLLFlights() {
     return null;
   }
 
-  const now =
-    Date.now();
-
   return await flightAwareGet(
     "/airports/KFLL/flights",
     {
       airline: "JBU",
+      max_pages: 1
+    }
+  );
+
+}
 
       start:
         new Date(
