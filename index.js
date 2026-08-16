@@ -25,7 +25,6 @@ const TRACKING_WEBHOOK =
 const WEATHER_WEBHOOK =
   process.env.DISCORD_WEATHER_WEBHOOK;
 
-// Supports either Render variable name
 const OPERATIONS_WEBHOOK =
   process.env.DISCORD_OPERATIONS_WEBHOOK ||
   process.env.DISCORD_FLIGHT_STATUS_WEBHOOK;
@@ -40,23 +39,16 @@ const FLIGHTAWARE_API_KEY =
 const KFLL_LAT = 26.0726;
 const KFLL_LON = -80.1527;
 
-// Arrival detector
 const ARRIVAL_RADIUS_NM = 8;
-
-// Changed from 5 sec -> 10 sec to reduce ADS-B rate limiting
 const ARRIVAL_POLL_INTERVAL = 10000;
 
-// Long-range tracking
 const TRACKING_RADIUS_NM = 160;
 const TRACKING_POLL_INTERVAL = 30000;
 
-// FlightAware operational alerts
 const OPS_POLL_INTERVAL = 120000;
 
-// NWS weather alerts
 const WEATHER_POLL_INTERVAL = 300000;
 
-// 30 minute delay threshold
 const DELAY_THRESHOLD_SECONDS = 30 * 60;
 
 // ======================================================
@@ -197,11 +189,17 @@ function flightCallsign(flight) {
 
 function airportCode(airport) {
 
+  if (!airport) {
+    return "N/A";
+  }
+
   return clean(
-    airport?.code_iata ||
-    airport?.code ||
-    airport?.code_icao ||
-    airport?.iata
+    airport.code_iata ||
+    airport.iata ||
+    airport.code ||
+    airport.airport_code ||
+    airport.code_icao ||
+    airport.icao
   ).toUpperCase();
 }
 
@@ -446,7 +444,10 @@ async function flightAwareGet(
   }
 }
 
-// ------------------------------------------------------
+// ======================================================
+// FLIGHT DETAILS
+// UPDATED TO PREFER THE FLL LEG
+// ======================================================
 
 async function getFlightDetails(
   callsign
@@ -468,16 +469,67 @@ async function getFlightDetails(
       )}`
     );
 
-  return (
-    data?.flights?.[0] ||
-    null
-  );
+  const flights =
+    data?.flights ||
+    [];
+
+  if (
+    !Array.isArray(flights) ||
+    flights.length === 0
+  ) {
+
+    return null;
+  }
+
+  // First choice:
+  // find the JetBlue leg whose destination is FLL/KFLL
+  const fllFlight =
+    flights.find(
+      flight => {
+
+        const destination =
+          airportCode(
+            flight.destination
+          );
+
+        return (
+          destination === "FLL" ||
+          destination === "KFLL"
+        );
+      }
+    );
+
+  if (fllFlight) {
+
+    return fllFlight;
+  }
+
+  // Second choice:
+  // prefer a flight record that actually has an origin
+  const withOrigin =
+    flights.find(
+      flight => {
+
+        const origin =
+          airportCode(
+            flight.origin
+          );
+
+        return (
+          origin &&
+          origin !== "N/A"
+        );
+      }
+    );
+
+  if (withOrigin) {
+
+    return withOrigin;
+  }
+
+  return flights[0];
 }
 
-// ------------------------------------------------------
-// FIXED
-// Removed start/end arguments that were causing
-// "Invalid start bound: type is incorrect"
 // ------------------------------------------------------
 
 async function getKFLLFlights() {
@@ -546,6 +598,7 @@ async function sendDiscord(
 
 // ======================================================
 // ARRIVAL
+// UPDATED ORIGIN LOOKUP
 // ======================================================
 
 async function announceArrival(
@@ -565,7 +618,6 @@ async function announceArrival(
   const landingId =
     `${hex}-${callsign}`;
 
-  // Prevent duplicate arrival notifications
   if (
     announcedLandings.has(
       landingId
@@ -597,7 +649,6 @@ async function announceArrival(
       plane.r
     );
 
-  // FlightAware lookup
   const flight =
     await getFlightDetails(
       callsign
@@ -605,12 +656,19 @@ async function announceArrival(
 
   if (flight) {
 
-    origin =
-      flight.origin?.code_iata ||
-      flight.origin?.code ||
-      flight.origin?.airport_code ||
-      flight.origin?.iata ||
-      "N/A";
+    const foundOrigin =
+      airportCode(
+        flight.origin
+      );
+
+    if (
+      foundOrigin &&
+      foundOrigin !== "N/A"
+    ) {
+
+      origin =
+        foundOrigin;
+    }
 
     aircraft =
       flight.aircraft_type ||
@@ -620,17 +678,16 @@ async function announceArrival(
       flight.registration ||
       flight.tailnumber ||
       registration;
-  }
 
-  // ====================================================
-  // NEW ARRIVAL TITLE
-  //
-  // OLD:
-  // JETBLUE ARRIVAL — KFLL
-  //
-  // NEW:
-  // JETBLUE ARRIVAL — JBU2072
-  // ====================================================
+    console.log(
+      `📍 ${callsign} origin: ${origin}`
+    );
+  } else {
+
+    console.log(
+      `⚠️ No FlightAware details found for ${callsign}`
+    );
+  }
 
   const message =
     `🛬 **JETBLUE ARRIVAL — ${callsign}**\n` +
@@ -785,7 +842,6 @@ async function checkReturnToFLL(
     Date.now() -
     departed.departedAt;
 
-  // Stop tracking after 2 hours
   if (
     age >
     2 *
@@ -855,9 +911,6 @@ async function checkReturnToFLL(
 
 // ======================================================
 // AIRCRAFT TRACKING
-// 20 MIN OUT
-// 15 MIN OUT
-// ON APPROACH
 // ======================================================
 
 async function checkAircraftTracking() {
@@ -925,7 +978,6 @@ async function checkAircraftTracking() {
               plane.alt_baro || 0
             );
 
-      // Don't track ground aircraft here
       if (
         altitude <= 500 ||
         distance <= 1.5
@@ -962,7 +1014,6 @@ async function checkAircraftTracking() {
         }
       );
 
-      // Need previous observation to determine direction
       if (!previous) {
         continue;
       }
@@ -1020,7 +1071,6 @@ async function checkAircraftTracking() {
                 flight.destination
               );
 
-            // Only flights actually going to FLL
             if (
               destination !== "FLL" &&
               destination !== "KFLL"
@@ -1201,8 +1251,6 @@ async function checkAircraftTracking() {
       }
     }
 
-    // Clean tracking state after 30 minutes
-
     for (
       const [
         id,
@@ -1237,9 +1285,6 @@ async function checkAircraftTracking() {
 
 // ======================================================
 // OPS ALERTS
-// DELAYS
-// CANCELLATIONS
-// DIVERSIONS
 // ======================================================
 
 async function checkOpsAlerts() {
@@ -1328,9 +1373,7 @@ async function checkOpsAlerts() {
           flight.registration
         );
 
-      // ==================================================
       // CANCELLED
-      // ==================================================
 
       if (
         flight.cancelled === true &&
@@ -1351,9 +1394,7 @@ async function checkOpsAlerts() {
         );
       }
 
-      // ==================================================
       // DIVERTED
-      // ==================================================
 
       if (
         flight.diverted === true &&
@@ -1374,9 +1415,7 @@ async function checkOpsAlerts() {
         );
       }
 
-      // ==================================================
       // ARRIVAL DELAY
-      // ==================================================
 
       const arrivalDelay =
         Number(
@@ -1428,9 +1467,7 @@ async function checkOpsAlerts() {
         }
       }
 
-      // ==================================================
       // DEPARTURE DELAY
-      // ==================================================
 
       const departureDelay =
         Number(
@@ -1499,8 +1536,6 @@ async function checkOpsAlerts() {
       );
     }
 
-    // Cleanup old ops memory
-
     const now =
       Date.now();
 
@@ -1538,7 +1573,7 @@ async function checkOpsAlerts() {
 }
 
 // ======================================================
-// FLL WEATHER ALERTS
+// WEATHER ALERTS
 // ======================================================
 
 async function checkWeatherAlerts() {
@@ -1791,9 +1826,7 @@ async function checkKFLL() {
         )} NM`
       );
 
-      // ==================================================
       // FIRST OBSERVATION
-      // ==================================================
 
       if (!previous) {
 
@@ -1815,9 +1848,7 @@ async function checkKFLL() {
         continue;
       }
 
-      // ==================================================
       // ARRIVAL DETECTION
-      // ==================================================
 
       const wasAirborne =
         previous.altitude > 500 ||
@@ -1847,9 +1878,7 @@ async function checkKFLL() {
         );
       }
 
-      // ==================================================
       // DEPARTURE DETECTION
-      // ==================================================
 
       const wasGround =
         previous.altitude <= 100;
@@ -1876,9 +1905,7 @@ async function checkKFLL() {
         );
       }
 
-      // ==================================================
       // RETURN TO FLL
-      // ==================================================
 
       await checkReturnToFLL(
         plane,
@@ -1886,9 +1913,7 @@ async function checkKFLL() {
         altitude
       );
 
-      // ==================================================
-      // UPDATE AIRCRAFT STATE
-      // ==================================================
+      // UPDATE STATE
 
       aircraftState.set(
         id,
@@ -1907,9 +1932,7 @@ async function checkKFLL() {
       );
     }
 
-    // ==================================================
     // CLEAN OLD AIRCRAFT
-    // ==================================================
 
     for (
       const [
@@ -1933,9 +1956,7 @@ async function checkKFLL() {
       }
     }
 
-    // ==================================================
-    // CLEAN OLD LANDING ALERTS
-    // ==================================================
+    // CLEAN LANDING ALERTS
 
     for (
       const [
@@ -1960,9 +1981,7 @@ async function checkKFLL() {
       }
     }
 
-    // ==================================================
-    // CLEAN OLD DEPARTURE ALERTS
-    // ==================================================
+    // CLEAN DEPARTURE ALERTS
 
     for (
       const [
@@ -1987,9 +2006,7 @@ async function checkKFLL() {
       }
     }
 
-    // ==================================================
-    // CLEAN OLD TRACKING ALERTS
-    // ==================================================
+    // CLEAN TRACKING ALERTS
 
     for (
       const [
@@ -2025,12 +2042,10 @@ async function checkKFLL() {
 }
 
 // ======================================================
-// STARTUP STATUS
+// STARTUP
 // ======================================================
 
-console.log(
-  ""
-);
+console.log("");
 
 console.log(
   "🔵 JETBLUE KFLL OPERATIONS"
@@ -2090,15 +2105,11 @@ console.log(
   !!FLIGHTAWARE_API_KEY
 );
 
-console.log(
-  ""
-);
+console.log("");
 
 // ======================================================
 // START LOOPS
 // ======================================================
-
-// ARRIVAL / DEPARTURE DETECTOR
 
 checkKFLL();
 
@@ -2107,8 +2118,6 @@ setInterval(
   ARRIVAL_POLL_INTERVAL
 );
 
-// LONG RANGE AIRCRAFT TRACKING
-
 checkAircraftTracking();
 
 setInterval(
@@ -2116,16 +2125,12 @@ setInterval(
   TRACKING_POLL_INTERVAL
 );
 
-// DELAYS / CANCELLATIONS / DIVERSIONS
-
 checkOpsAlerts();
 
 setInterval(
   checkOpsAlerts,
   OPS_POLL_INTERVAL
 );
-
-// WEATHER
 
 checkWeatherAlerts();
 
