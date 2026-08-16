@@ -657,7 +657,7 @@ async function announceArrival(plane) {
   }
 
   const message =
-    `🛬 **JETBLUE ARRIVAL — KFLL**\n` +
+    `🛬 **JETBLUE ARRIVAL — ${flightNumber}**\n` +
     `━━━━━━━━━━━━━━━━━━━━\n` +
     `✈️ **Flight:** ${callsign}\n` +
     `📍 **Origin:** ${origin}\n` +
