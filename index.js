@@ -9,12 +9,13 @@ const ARRIVALS_WEBHOOK = process.env.DISCORD_ARRIVALS_WEBHOOK;
 const ALERTS_WEBHOOK = process.env.DISCORD_ALERTS_WEBHOOK;
 const TRACKING_WEBHOOK = process.env.DISCORD_TRACKING_WEBHOOK;
 const WEATHER_WEBHOOK = process.env.DISCORD_WEATHER_WEBHOOK;
-
 const OPERATIONS_WEBHOOK =
   process.env.DISCORD_OPERATIONS_WEBHOOK ||
   process.env.DISCORD_FLIGHT_STATUS_WEBHOOK;
-
 const FLIGHTAWARE_API_KEY = process.env.FLIGHTAWARE_API_KEY;
+
+// Your Discord server
+const GUILD_ID = "1538228694508769350";
 
 // =====================================================
 // KFLL SETTINGS
@@ -42,12 +43,9 @@ const DELAY_THRESHOLD_SECONDS = 30 * 60;
 // =====================================================
 const aircraftState = new Map();
 const announcedLandings = new Map();
-
 const trackingState = new Map();
 const announcedTracking = new Map();
-
 const recentlyDeparted = new Map();
-
 const opsState = new Map();
 const weatherAlertsSeen = new Map();
 
@@ -56,52 +54,10 @@ let lastDailyWeatherDate = null;
 let opsInitialized = false;
 
 // =====================================================
-// DISCORD BOT
-// =====================================================
-const discordClient = new Client({
-  intents: [GatewayIntentBits.Guilds]
-});
-
-discordClient.once("clientReady", () => {
-  console.log(
-    `🟢 Discord bot online as ${discordClient.user.tag}`
-  );
-
-  discordClient.user.setPresence({
-    activities: [
-      {
-        name: "JetBlue operations at KFLL",
-        type: ActivityType.Watching
-      }
-    ],
-    status: "online"
-  });
-});
-
-if (DISCORD_BOT_TOKEN) {
-  discordClient
-    .login(DISCORD_BOT_TOKEN)
-    .catch(error => {
-      console.error(
-        "❌ Discord login failed:",
-        error.message
-      );
-    });
-} else {
-  console.error(
-    "❌ DISCORD_BOT_TOKEN is missing"
-  );
-}
-
-// =====================================================
 // HELPERS
 // =====================================================
 function clean(value) {
-  if (
-    value === null ||
-    value === undefined ||
-    value === ""
-  ) {
+  if (value === null || value === undefined || value === "") {
     return "N/A";
   }
 
@@ -109,11 +65,7 @@ function clean(value) {
 }
 
 function isJetBlueADSB(plane) {
-  return clean(
-    plane.flight
-  )
-    .toUpperCase()
-    .startsWith("JBU");
+  return clean(plane.flight).toUpperCase().startsWith("JBU");
 }
 
 function flightCallsign(flight) {
@@ -125,15 +77,13 @@ function flightCallsign(flight) {
 }
 
 function isJetBlueFlight(flight) {
-  const ident =
-    flightCallsign(flight);
+  const ident = flightCallsign(flight);
 
-  const operator =
-    clean(
-      flight.operator_icao ||
-      flight.operator ||
-      flight.operator_iata
-    ).toUpperCase();
+  const operator = clean(
+    flight.operator_icao ||
+    flight.operator ||
+    flight.operator_iata
+  ).toUpperCase();
 
   return (
     ident.startsWith("JBU") ||
@@ -153,12 +103,7 @@ function airportCode(airport) {
   ).toUpperCase();
 }
 
-function distanceNM(
-  lat1,
-  lon1,
-  lat2,
-  lon2
-) {
+function distanceNM(lat1, lon1, lat2, lon2) {
   const R = 3440.065;
 
   const dLat =
@@ -171,12 +116,8 @@ function distanceNM(
 
   const a =
     Math.sin(dLat / 2) ** 2 +
-    Math.cos(
-      (lat1 * Math.PI) / 180
-    ) *
-    Math.cos(
-      (lat2 * Math.PI) / 180
-    ) *
+    Math.cos((lat1 * Math.PI) / 180) *
+    Math.cos((lat2 * Math.PI) / 180) *
     Math.sin(dLon / 2) ** 2;
 
   return (
@@ -199,11 +140,7 @@ function formatTime(value) {
       ? value
       : new Date(value);
 
-  if (
-    Number.isNaN(
-      date.getTime()
-    )
-  ) {
+  if (Number.isNaN(date.getTime())) {
     return "N/A";
   }
 
@@ -211,17 +148,10 @@ function formatTime(value) {
     new Intl.DateTimeFormat(
       "en-US",
       {
-        timeZone:
-          "America/New_York",
-
-        hour:
-          "2-digit",
-
-        minute:
-          "2-digit",
-
-        hour12:
-          true
+        timeZone: "America/New_York",
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: true
       }
     ).format(date) +
     " ET"
@@ -229,44 +159,26 @@ function formatTime(value) {
 }
 
 function formatMinutes(seconds) {
-  const value =
-    Number(seconds);
+  const value = Number(seconds);
 
-  if (
-    !Number.isFinite(value)
-  ) {
+  if (!Number.isFinite(value)) {
     return "N/A";
   }
 
-  return Math.round(
-    value / 60
-  );
+  return Math.round(value / 60);
 }
 
-function estimatedMinutesOut(
-  distance,
-  plane
-) {
-  const speed =
-    Number(plane.gs);
+function estimatedMinutesOut(distance, plane) {
+  const speed = Number(plane.gs);
 
-  if (
-    !Number.isFinite(speed) ||
-    speed < 30
-  ) {
+  if (!Number.isFinite(speed) || speed < 30) {
     return null;
   }
 
-  return (
-    distance /
-    speed *
-    60
-  );
+  return (distance / speed) * 60;
 }
 
-function flightReferenceTime(
-  flight
-) {
+function flightReferenceTime(flight) {
   const value =
     flight.actual_off ||
     flight.actual_out ||
@@ -280,9 +192,23 @@ function flightReferenceTime(
     return 0;
   }
 
-  const ms =
-    new Date(value)
-      .getTime();
+  const ms = new Date(value).getTime();
+
+  return Number.isFinite(ms)
+    ? ms
+    : 0;
+}
+
+function actualDepartureTime(flight) {
+  const value =
+    flight.actual_off ||
+    flight.actual_out;
+
+  if (!value) {
+    return 0;
+  }
+
+  const ms = new Date(value).getTime();
 
   return Number.isFinite(ms)
     ? ms
@@ -294,49 +220,27 @@ function easternNowParts() {
     new Intl.DateTimeFormat(
       "en-US",
       {
-        timeZone:
-          "America/New_York",
-
-        year:
-          "numeric",
-
-        month:
-          "2-digit",
-
-        day:
-          "2-digit",
-
-        hour:
-          "2-digit",
-
-        minute:
-          "2-digit",
-
-        hour12:
-          false
+        timeZone: "America/New_York",
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: false
       }
-    ).formatToParts(
-      new Date()
-    );
+    ).formatToParts(new Date());
 
   const values = {};
 
-  for (
-    const part
-    of parts
-  ) {
-    values[
-      part.type
-    ] = part.value;
+  for (const part of parts) {
+    values[part.type] = part.value;
   }
 
   return {
     dateKey:
       `${values.year}-${values.month}-${values.day}`,
-
     hour:
       Number(values.hour),
-
     minute:
       Number(values.minute)
   };
@@ -346,29 +250,17 @@ function todayLongDate() {
   return new Intl.DateTimeFormat(
     "en-US",
     {
-      timeZone:
-        "America/New_York",
-
-      weekday:
-        "long",
-
-      month:
-        "long",
-
-      day:
-        "numeric"
+      timeZone: "America/New_York",
+      weekday: "long",
+      month: "long",
+      day: "numeric"
     }
-  ).format(
-    new Date()
-  );
+  ).format(new Date());
 }
 
-function weatherEmoji(
-  text = ""
-) {
+function weatherEmoji(text = "") {
   const value =
-    String(text)
-      .toLowerCase();
+    String(text).toLowerCase();
 
   if (
     value.includes("thunder") ||
@@ -400,10 +292,7 @@ function weatherEmoji(
   return "☀️";
 }
 
-function rampWeatherOutlook(
-  day,
-  night
-) {
+function rampWeatherOutlook(day, night) {
   const text =
     [
       day?.shortForecast,
@@ -452,36 +341,22 @@ function rampWeatherOutlook(
 }
 
 // =====================================================
-// DISCORD
+// DISCORD WEBHOOK
 // =====================================================
-async function sendDiscord(
-  webhook,
-  message
-) {
+async function sendDiscord(webhook, message) {
   if (!webhook) {
-    console.error(
-      "❌ Discord webhook missing"
-    );
-
+    console.error("❌ Discord webhook missing");
     return;
   }
 
   try {
     await axios.post(
       webhook,
-      {
-        content:
-          message
-      },
-      {
-        timeout:
-          10000
-      }
+      { content: message },
+      { timeout: 10000 }
     );
 
-    console.log(
-      "📢 Discord message sent"
-    );
+    console.log("📢 Discord message sent");
 
   } catch (error) {
     console.error(
@@ -495,9 +370,7 @@ async function sendDiscord(
 // =====================================================
 // ADS-B
 // =====================================================
-async function getAircraft(
-  radius
-) {
+async function getAircraft(radius) {
   const url =
     `https://api.adsb.lol/v2/point/` +
     `${KFLL_LAT}/${KFLL_LON}/${radius}`;
@@ -506,27 +379,18 @@ async function getAircraft(
     await axios.get(
       url,
       {
-        timeout:
-          10000
+        timeout: 10000
       }
     );
 
-  return (
-    response.data.ac ||
-    []
-  );
+  return response.data.ac || [];
 }
 
 // =====================================================
 // FLIGHTAWARE
 // =====================================================
-async function flightAwareGet(
-  path,
-  params = {}
-) {
-  if (
-    !FLIGHTAWARE_API_KEY
-  ) {
+async function flightAwareGet(path, params = {}) {
+  if (!FLIGHTAWARE_API_KEY) {
     return null;
   }
 
@@ -539,17 +403,12 @@ async function flightAwareGet(
             "x-apikey":
               FLIGHTAWARE_API_KEY
           },
-
           params,
-
-          timeout:
-            15000
+          timeout: 15000
         }
       );
 
-    return (
-      response.data
-    );
+    return response.data;
 
   } catch (error) {
     console.error(
@@ -562,9 +421,7 @@ async function flightAwareGet(
   }
 }
 
-async function getFlightDetails(
-  callsign
-) {
+async function getFlightDetails(callsign) {
   if (
     !callsign ||
     !FLIGHTAWARE_API_KEY
@@ -574,28 +431,21 @@ async function getFlightDetails(
 
   const data =
     await flightAwareGet(
-      `/flights/${encodeURIComponent(
-        callsign
-      )}`
+      `/flights/${encodeURIComponent(callsign)}`
     );
 
   const flights =
-    data?.flights ||
-    [];
+    data?.flights || [];
 
-  if (
-    !flights.length
-  ) {
+  if (!flights.length) {
     return null;
   }
 
-  const now =
-    Date.now();
+  const now = Date.now();
 
   const fllFlights =
     flights.filter(
       flight => {
-
         const origin =
           airportCode(
             flight.origin
@@ -612,7 +462,6 @@ async function getFlightDetails(
           destination === "FLL" ||
           destination === "KFLL"
         );
-
       }
     );
 
@@ -622,47 +471,128 @@ async function getFlightDetails(
       : flights;
 
   choices.sort(
-    (a, b) => {
-
-      return (
-        Math.abs(
-          flightReferenceTime(a) -
-          now
-        ) -
-        Math.abs(
-          flightReferenceTime(b) -
-          now
-        )
-      );
-
-    }
+    (a, b) =>
+      Math.abs(
+        flightReferenceTime(a) -
+        now
+      ) -
+      Math.abs(
+        flightReferenceTime(b) -
+        now
+      )
   );
 
-  return (
-    choices[0] ||
-    null
-  );
+  return choices[0] || null;
 }
 
 async function getKFLLFlights() {
   return flightAwareGet(
     "/airports/KFLL/flights",
     {
-      airline:
-        "JBU",
-
-      max_pages:
-        1
+      airline: "JBU",
+      max_pages: 1
     }
+  );
+}
+
+async function getLatestActualDeparture() {
+  const data =
+    await getKFLLFlights();
+
+  if (!data) {
+    return null;
+  }
+
+  const departures =
+    [
+      ...(data.departures || []),
+      ...(data.scheduled_departures || [])
+    ]
+      .filter(
+        isJetBlueFlight
+      )
+      .filter(
+        flight => {
+          const origin =
+            airportCode(
+              flight.origin
+            );
+
+          return (
+            origin === "FLL" ||
+            origin === "KFLL"
+          );
+        }
+      )
+      .filter(
+        flight =>
+          actualDepartureTime(
+            flight
+          ) > 0
+      )
+      .sort(
+        (a, b) =>
+          actualDepartureTime(b) -
+          actualDepartureTime(a)
+      );
+
+  return departures[0] || null;
+}
+
+// =====================================================
+// NATIONAL WEATHER SERVICE
+// =====================================================
+const NWS_HEADERS = {
+  "User-Agent":
+    "KFLL-Discord-Ops/1.0"
+};
+
+async function getNWSForecast() {
+  const pointResponse =
+    await axios.get(
+      `https://api.weather.gov/points/${KFLL_LAT},${KFLL_LON}`,
+      {
+        headers:
+          NWS_HEADERS,
+        timeout:
+          15000
+      }
+    );
+
+  const forecastUrl =
+    pointResponse.data
+      ?.properties
+      ?.forecast;
+
+  if (!forecastUrl) {
+    throw new Error(
+      "NWS forecast URL missing for KFLL"
+    );
+  }
+
+  const forecastResponse =
+    await axios.get(
+      forecastUrl,
+      {
+        headers:
+          NWS_HEADERS,
+        timeout:
+          15000
+      }
+    );
+
+  return (
+    forecastResponse.data
+      ?.properties
+      ?.periods ||
+    []
   );
 }
 
 // =====================================================
 // ARRIVALS
 // =====================================================
-async function announceArrival(
-  plane
-) {
+async function announceArrival(plane) {
   const callsign =
     clean(
       plane.flight
@@ -746,12 +676,9 @@ async function announceArrival(
 }
 
 // =====================================================
-// ADS-B DEPARTURE MEMORY
-// ONLY used for return-to-FLL alerts
+// RETURN TO FLL MEMORY
 // =====================================================
-function rememberDepartureFromADSB(
-  plane
-) {
+function rememberDepartureFromADSB(plane) {
   const hex =
     clean(
       plane.hex
@@ -766,7 +693,6 @@ function rememberDepartureFromADSB(
     hex,
     {
       callsign,
-
       departedAt:
         Date.now()
     }
@@ -861,28 +787,8 @@ async function checkReturnToFLL(
 }
 
 // =====================================================
-// OPERATIONS
-// LATEST ACTUAL JETBLUE DEPARTURE
+// OPERATIONS - LATEST DEPARTURE
 // =====================================================
-function actualDepartureTime(
-  flight
-) {
-  if (
-    !flight.actual_off
-  ) {
-    return 0;
-  }
-
-  const ms =
-    new Date(
-      flight.actual_off
-    ).getTime();
-
-  return Number.isFinite(ms)
-    ? ms
-    : 0;
-}
-
 async function checkLatestOperationsDeparture() {
   if (
     !OPERATIONS_WEBHOOK ||
@@ -892,74 +798,16 @@ async function checkLatestOperationsDeparture() {
   }
 
   try {
-    const data =
-      await getKFLLFlights();
+    const latest =
+      await getLatestActualDeparture();
 
-    if (!data) {
-      return;
-    }
-
-    const departures =
-      [
-        ...(
-          data.departures ||
-          []
-        ),
-
-        ...(
-          data.scheduled_departures ||
-          []
-        )
-      ]
-        .filter(
-          isJetBlueFlight
-        )
-
-        .filter(
-          flight => {
-
-            const origin =
-              airportCode(
-                flight.origin
-              );
-
-            return (
-              origin === "FLL" ||
-              origin === "KFLL"
-            );
-
-          }
-        )
-
-        .filter(
-          flight =>
-            actualDepartureTime(
-              flight
-            ) > 0
-        )
-
-        .sort(
-          (a, b) =>
-            actualDepartureTime(
-              b
-            ) -
-            actualDepartureTime(
-              a
-            )
-        );
-
-    if (
-      !departures.length
-    ) {
+    if (!latest) {
       console.log(
         "🔵 Operations: no actual JetBlue departure found"
       );
 
       return;
     }
-
-    const latest =
-      departures[0];
 
     const departureId =
       latest.fa_flight_id ||
@@ -969,9 +817,6 @@ async function checkLatestOperationsDeparture() {
         latest
       )}`;
 
-    // First scan remembers the current last departure.
-    // This prevents an old departure from being posted
-    // immediately every time Render restarts.
     if (
       lastOperationsDepartureId ===
       null
@@ -1018,6 +863,10 @@ async function checkLatestOperationsDeparture() {
         latest.registration
       );
 
+    const takeoff =
+      latest.actual_off ||
+      latest.actual_out;
+
     const message =
       `🛫 **LAST DEPARTURE — KFLL**\n` +
       `━━━━━━━━━━━━━━━━━━━━\n` +
@@ -1027,7 +876,7 @@ async function checkLatestOperationsDeparture() {
       `🏷️ **Registration:** ${registration}\n` +
       `🛫 **Status:** DEPARTED\n` +
       `⏱️ **Takeoff:** ${formatTime(
-        latest.actual_off
+        takeoff
       )}\n` +
       `━━━━━━━━━━━━━━━━━━━━`;
 
@@ -1073,9 +922,7 @@ async function getTrackingInfo(
     return {
       validForFLL:
         true,
-
       origin,
-
       registration
     };
   }
@@ -1239,11 +1086,9 @@ async function checkAircraftTracking() {
           Number(
             plane.lat
           ),
-
           Number(
             plane.lon
           ),
-
           KFLL_LAT,
           KFLL_LON
         );
@@ -1405,25 +1250,10 @@ async function checkOpsAlerts() {
 
     const flights =
       [
-        ...(
-          data.scheduled_arrivals ||
-          []
-        ),
-
-        ...(
-          data.scheduled_departures ||
-          []
-        ),
-
-        ...(
-          data.arrivals ||
-          []
-        ),
-
-        ...(
-          data.departures ||
-          []
-        )
+        ...(data.scheduled_arrivals || []),
+        ...(data.scheduled_departures || []),
+        ...(data.arrivals || []),
+        ...(data.departures || [])
       ].filter(
         isJetBlueFlight
       );
@@ -1451,7 +1281,6 @@ async function checkOpsAlerts() {
       );
     }
 
-    // Prevent old alerts from flooding Discord on startup.
     if (
       !opsInitialized
     ) {
@@ -1546,7 +1375,6 @@ async function checkOpsAlerts() {
           flight.registration
         );
 
-      // CANCELLED
       if (
         flight.cancelled ===
           true &&
@@ -1567,7 +1395,6 @@ async function checkOpsAlerts() {
         );
       }
 
-      // DIVERTED
       if (
         flight.diverted ===
           true &&
@@ -1588,7 +1415,6 @@ async function checkOpsAlerts() {
         );
       }
 
-      // ARRIVAL DELAY
       const arrivalDelay =
         Number(
           flight.arrival_delay ||
@@ -1638,7 +1464,6 @@ async function checkOpsAlerts() {
           bucket;
       }
 
-      // DEPARTURE DELAY
       const departureDelay =
         Number(
           flight.departure_delay ||
@@ -1739,58 +1564,6 @@ async function checkOpsAlerts() {
 }
 
 // =====================================================
-// NATIONAL WEATHER SERVICE
-// =====================================================
-const NWS_HEADERS = {
-  "User-Agent":
-    "KFLL-Discord-Ops/1.0"
-};
-
-async function getNWSForecast() {
-  const pointResponse =
-    await axios.get(
-      `https://api.weather.gov/points/${KFLL_LAT},${KFLL_LON}`,
-      {
-        headers:
-          NWS_HEADERS,
-
-        timeout:
-          15000
-      }
-    );
-
-  const forecastUrl =
-    pointResponse.data
-      ?.properties
-      ?.forecast;
-
-  if (!forecastUrl) {
-    throw new Error(
-      "NWS forecast URL missing for KFLL"
-    );
-  }
-
-  const forecastResponse =
-    await axios.get(
-      forecastUrl,
-      {
-        headers:
-          NWS_HEADERS,
-
-        timeout:
-          15000
-      }
-    );
-
-  return (
-    forecastResponse.data
-      ?.properties
-      ?.periods ||
-    []
-  );
-}
-
-// =====================================================
 // DAILY WEATHER
 // =====================================================
 async function sendDailyWeather() {
@@ -1868,11 +1641,8 @@ async function sendDailyWeather() {
 
     const rainChance =
       Math.max(
-        dayRain ||
-        0,
-
-        nightRain ||
-        0
+        dayRain || 0,
+        nightRain || 0
       );
 
     const condition =
@@ -1971,10 +1741,8 @@ async function checkWeatherAlerts() {
             point:
               `${KFLL_LAT},${KFLL_LON}`
           },
-
           headers:
             NWS_HEADERS,
-
           timeout:
             15000
         }
@@ -1998,9 +1766,7 @@ async function checkWeatherAlerts() {
 
     for (
       const feature
-      of response.data
-        ?.features ||
-      []
+      of response.data?.features || []
     ) {
       const props =
         feature.properties ||
@@ -2153,11 +1919,9 @@ async function checkKFLL() {
           Number(
             plane.lat
           ),
-
           Number(
             plane.lon
           ),
-
           KFLL_LAT,
           KFLL_LON
         );
@@ -2193,9 +1957,6 @@ async function checkKFLL() {
         )} NM`
       );
 
-      // =================================================
-      // FIRST OBSERVATION
-      // =================================================
       if (!previous) {
         aircraftState.set(
           id,
@@ -2204,7 +1965,6 @@ async function checkKFLL() {
             altitude,
             timestamp:
               now,
-
             wasAirborne:
               altitude >
               500
@@ -2214,10 +1974,7 @@ async function checkKFLL() {
         continue;
       }
 
-      // =================================================
       // ARRIVAL DETECTION
-      // SAME WORKING LOGIC
-      // =================================================
       const wasAirborne =
         previous.altitude >
           500 ||
@@ -2249,9 +2006,7 @@ async function checkKFLL() {
         );
       }
 
-      // =================================================
       // DEPARTURE MEMORY ONLY
-      // =================================================
       const wasGround =
         previous.altitude <=
         100;
@@ -2292,7 +2047,6 @@ async function checkKFLL() {
           altitude,
           timestamp:
             now,
-
           wasAirborne:
             previous.wasAirborne ||
             altitude >
@@ -2301,7 +2055,6 @@ async function checkKFLL() {
       );
     }
 
-    // CLEANUP
     for (
       const [
         id,
@@ -2374,6 +2127,520 @@ async function checkKFLL() {
 }
 
 // =====================================================
+// SLASH COMMAND DEFINITIONS
+// =====================================================
+const slashCommands = [
+  {
+    name: "weather",
+    description:
+      "Show the current FLL weather forecast"
+  },
+  {
+    name: "lastdeparture",
+    description:
+      "Show the latest JetBlue departure from FLL"
+  },
+  {
+    name: "tracking",
+    description:
+      "Show JetBlue aircraft currently near FLL"
+  },
+  {
+    name: "alerts",
+    description:
+      "Show KFLL operations alert monitoring status"
+  },
+  {
+    name: "status",
+    description:
+      "Show KFLL Operations bot status"
+  },
+  {
+    name: "flight",
+    description:
+      "Look up a JetBlue flight",
+    options: [
+      {
+        name: "number",
+        description:
+          "Flight number such as 571 or JBU571",
+        type: 3,
+        required: true
+      }
+    ]
+  },
+  {
+    name: "help",
+    description:
+      "Show all KFLL Operations commands"
+  }
+];
+
+// =====================================================
+// DISCORD BOT
+// =====================================================
+const discordClient =
+  new Client({
+    intents: [
+      GatewayIntentBits.Guilds
+    ]
+  });
+
+discordClient.once(
+  "clientReady",
+  async () => {
+    console.log(
+      `🟢 Discord bot online as ${discordClient.user.tag}`
+    );
+
+    discordClient.user.setPresence({
+      activities: [
+        {
+          name:
+            "JetBlue operations at KFLL",
+          type:
+            ActivityType.Watching
+        }
+      ],
+      status:
+        "online"
+    });
+
+    try {
+      const guild =
+        await discordClient.guilds.fetch(
+          GUILD_ID
+        );
+
+      await guild.commands.set(
+        slashCommands
+      );
+
+      console.log(
+        "🤖 Slash commands registered"
+      );
+
+    } catch (error) {
+      console.error(
+        "❌ Slash command registration error:",
+        error.message
+      );
+    }
+  }
+);
+
+// =====================================================
+// SLASH COMMAND HANDLER
+// =====================================================
+discordClient.on(
+  "interactionCreate",
+  async interaction => {
+    if (
+      !interaction.isChatInputCommand()
+    ) {
+      return;
+    }
+
+    try {
+      // /STATUS
+      if (
+        interaction.commandName ===
+        "status"
+      ) {
+        await interaction.reply(
+          `🔵 **KFLL OPERATIONS STATUS**\n` +
+          `━━━━━━━━━━━━━━━━━━━━\n` +
+          `🛬 Arrivals: ${ARRIVALS_WEBHOOK ? "🟢 ONLINE" : "🔴 OFFLINE"}\n` +
+          `🚨 Ops Alerts: ${ALERTS_WEBHOOK ? "🟢 ONLINE" : "🔴 OFFLINE"}\n` +
+          `📡 Tracking: ${TRACKING_WEBHOOK ? "🟢 ONLINE" : "🔴 OFFLINE"}\n` +
+          `☀️ Weather: ${WEATHER_WEBHOOK ? "🟢 ONLINE" : "🔴 OFFLINE"}\n` +
+          `🛫 Operations: ${OPERATIONS_WEBHOOK ? "🟢 ONLINE" : "🔴 OFFLINE"}\n` +
+          `🔑 FlightAware: ${FLIGHTAWARE_API_KEY ? "🟢 CONNECTED" : "🔴 OFFLINE"}\n` +
+          `━━━━━━━━━━━━━━━━━━━━`
+        );
+
+        return;
+      }
+
+      // /HELP
+      if (
+        interaction.commandName ===
+        "help"
+      ) {
+        await interaction.reply(
+          `🤖 **KFLL OPERATIONS COMMANDS**\n` +
+          `━━━━━━━━━━━━━━━━━━━━\n` +
+          `☀️ **/weather** — FLL forecast\n` +
+          `🛫 **/lastdeparture** — latest JetBlue departure\n` +
+          `📡 **/tracking** — JetBlue aircraft near FLL\n` +
+          `🚨 **/alerts** — alert monitoring status\n` +
+          `✈️ **/flight** — look up a JetBlue flight\n` +
+          `🔵 **/status** — bot system status\n` +
+          `❓ **/help** — show commands\n` +
+          `━━━━━━━━━━━━━━━━━━━━`
+        );
+
+        return;
+      }
+
+      // /ALERTS
+      if (
+        interaction.commandName ===
+        "alerts"
+      ) {
+        await interaction.reply(
+          `🚨 **KFLL OPS ALERTS**\n` +
+          `━━━━━━━━━━━━━━━━━━━━\n` +
+          `⚠️ Delay Monitoring: ACTIVE\n` +
+          `❌ Cancellation Monitoring: ACTIVE\n` +
+          `↪️ Diversion Monitoring: ACTIVE\n` +
+          `↩️ Return-to-FLL Monitoring: ACTIVE\n` +
+          `━━━━━━━━━━━━━━━━━━━━`
+        );
+
+        return;
+      }
+
+      // /TRACKING
+      if (
+        interaction.commandName ===
+        "tracking"
+      ) {
+        await interaction.deferReply();
+
+        const aircraft =
+          await getAircraft(
+            TRACKING_RADIUS_NM
+          );
+
+        const jetblue =
+          aircraft
+            .filter(
+              isJetBlueADSB
+            )
+            .filter(
+              plane =>
+                plane.lat !== undefined &&
+                plane.lon !== undefined
+            );
+
+        if (
+          !jetblue.length
+        ) {
+          await interaction.editReply(
+            "📡 No JetBlue aircraft are currently being tracked near FLL."
+          );
+
+          return;
+        }
+
+        let message =
+          `📡 **JETBLUE AIRCRAFT NEAR FLL**\n` +
+          `━━━━━━━━━━━━━━━━━━━━\n`;
+
+        for (
+          const plane
+          of jetblue.slice(
+            0,
+            10
+          )
+        ) {
+          const distance =
+            distanceNM(
+              Number(
+                plane.lat
+              ),
+              Number(
+                plane.lon
+              ),
+              KFLL_LAT,
+              KFLL_LON
+            );
+
+          const altitude =
+            plane.alt_baro ===
+              "ground"
+              ? "GROUND"
+              : `${clean(
+                  plane.alt_baro
+                )} FT`;
+
+          message +=
+            `✈️ **${clean(
+              plane.flight
+            ).toUpperCase()}**\n` +
+            `📏 ${distance.toFixed(
+              1
+            )} NM | ⬆️ ${altitude}\n\n`;
+        }
+
+        await interaction.editReply(
+          message
+        );
+
+        return;
+      }
+
+      // /WEATHER
+      if (
+        interaction.commandName ===
+        "weather"
+      ) {
+        await interaction.deferReply();
+
+        const periods =
+          await getNWSForecast();
+
+        if (
+          !periods.length
+        ) {
+          await interaction.editReply(
+            "❌ FLL weather is currently unavailable."
+          );
+
+          return;
+        }
+
+        const day =
+          periods.find(
+            period =>
+              period.isDaytime ===
+              true
+          ) ||
+          periods[0];
+
+        const night =
+          periods.find(
+            period =>
+              period.isDaytime ===
+              false
+          );
+
+        const high =
+          day?.temperature ??
+          "N/A";
+
+        const low =
+          night?.temperature ??
+          "N/A";
+
+        const rain =
+          day
+            ?.probabilityOfPrecipitation
+            ?.value ??
+          0;
+
+        const condition =
+          day?.shortForecast ||
+          "N/A";
+
+        const winds =
+          [
+            day?.windDirection,
+            day?.windSpeed
+          ]
+            .filter(Boolean)
+            .join(" ");
+
+        const emoji =
+          weatherEmoji(
+            condition
+          );
+
+        await interaction.editReply(
+          `${emoji} **FLL WEATHER**\n` +
+          `━━━━━━━━━━━━━━━━━━━━\n` +
+          `🌡️ **High:** ${high}°F\n` +
+          `🌙 **Low:** ${low}°F\n` +
+          `🌧️ **Rain:** ${rain}%\n` +
+          `💨 **Winds:** ${winds || "N/A"}\n` +
+          `${emoji} **Forecast:** ${condition}\n` +
+          `━━━━━━━━━━━━━━━━━━━━`
+        );
+
+        return;
+      }
+
+      // /LASTDEPARTURE
+      if (
+        interaction.commandName ===
+        "lastdeparture"
+      ) {
+        await interaction.deferReply();
+
+        const flight =
+          await getLatestActualDeparture();
+
+        if (!flight) {
+          await interaction.editReply(
+            "🛫 No recent JetBlue departure was found."
+          );
+
+          return;
+        }
+
+        await interaction.editReply(
+          `🛫 **LAST JETBLUE DEPARTURE — KFLL**\n` +
+          `━━━━━━━━━━━━━━━━━━━━\n` +
+          `✈️ **Flight:** ${flightCallsign(
+            flight
+          )}\n` +
+          `📍 **Destination:** ${airportCode(
+            flight.destination
+          )}\n` +
+          `🛩️ **Aircraft:** ${clean(
+            flight.aircraft_type
+          )}\n` +
+          `🏷️ **Registration:** ${clean(
+            flight.registration
+          )}\n` +
+          `⏱️ **Takeoff:** ${formatTime(
+            flight.actual_off ||
+            flight.actual_out
+          )}\n` +
+          `━━━━━━━━━━━━━━━━━━━━`
+        );
+
+        return;
+      }
+
+      // /FLIGHT
+      if (
+        interaction.commandName ===
+        "flight"
+      ) {
+        await interaction.deferReply();
+
+        let number =
+          interaction.options
+            .getString(
+              "number"
+            )
+            .trim()
+            .toUpperCase();
+
+        if (
+          /^\d+$/.test(
+            number
+          )
+        ) {
+          number =
+            `JBU${number}`;
+        }
+
+        if (
+          number.startsWith(
+            "B6"
+          )
+        ) {
+          number =
+            `JBU${number.substring(
+              2
+            )}`;
+        }
+
+        const flight =
+          await getFlightDetails(
+            number
+          );
+
+        if (!flight) {
+          await interaction.editReply(
+            `❌ I couldn't find **${number}**.`
+          );
+
+          return;
+        }
+
+        const origin =
+          airportCode(
+            flight.origin
+          );
+
+        const destination =
+          airportCode(
+            flight.destination
+          );
+
+        await interaction.editReply(
+          `✈️ **${flightCallsign(
+            flight
+          )}**\n` +
+          `━━━━━━━━━━━━━━━━━━━━\n` +
+          `📍 **Route:** ${origin} → ${destination}\n` +
+          `🛩️ **Aircraft:** ${clean(
+            flight.aircraft_type
+          )}\n` +
+          `🏷️ **Registration:** ${clean(
+            flight.registration
+          )}\n` +
+          `📋 **Status:** ${clean(
+            flight.status
+          )}\n` +
+          `🛫 **Departure:** ${formatTime(
+            flight.actual_off ||
+            flight.estimated_off ||
+            flight.scheduled_off
+          )}\n` +
+          `🛬 **Arrival:** ${formatTime(
+            flight.actual_on ||
+            flight.estimated_on ||
+            flight.scheduled_on
+          )}\n` +
+          `━━━━━━━━━━━━━━━━━━━━`
+        );
+
+        return;
+      }
+
+    } catch (error) {
+      console.error(
+        "❌ Slash command error:",
+        error
+      );
+
+      const message =
+        "❌ Something went wrong while running that command.";
+
+      if (
+        interaction.deferred ||
+        interaction.replied
+      ) {
+        await interaction.editReply(
+          message
+        );
+      } else {
+        await interaction.reply(
+          message
+        );
+      }
+    }
+  }
+);
+
+// =====================================================
+// LOGIN
+// =====================================================
+if (DISCORD_BOT_TOKEN) {
+  discordClient
+    .login(
+      DISCORD_BOT_TOKEN
+    )
+    .catch(
+      error => {
+        console.error(
+          "❌ Discord login failed:",
+          error.message
+        );
+      }
+    );
+} else {
+  console.error(
+    "❌ DISCORD_BOT_TOKEN is missing"
+  );
+}
+
+// =====================================================
 // STARTUP
 // =====================================================
 console.log(
@@ -2402,6 +2669,10 @@ console.log(
 
 console.log(
   "🔵 OPERATIONS / LATEST DEPARTURE ENABLED"
+);
+
+console.log(
+  "🤖 SLASH COMMANDS ENABLED"
 );
 
 console.log(
@@ -2461,7 +2732,7 @@ setInterval(
   OPERATIONS_POLL_MS
 );
 
-// AIRCRAFT TRACKING
+// TRACKING
 setTimeout(
   checkAircraftTracking,
   20000
