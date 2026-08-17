@@ -42,14 +42,20 @@ const FLIGHTAWARE_API_KEY =
 const KFLL_LAT = 26.0726;
 const KFLL_LON = -80.1527;
 
+// Arrival detector
 const ARRIVAL_RADIUS_NM = 8;
 const ARRIVAL_POLL_INTERVAL = 10000;
 
+// Long-range tracker
 const TRACKING_RADIUS_NM = 160;
-const TRACKING_POLL_INTERVAL = 30000;
 
+// CHANGED: 30 seconds -> 60 seconds
+const TRACKING_POLL_INTERVAL = 60000;
+
+// FlightAware operations
 const OPS_POLL_INTERVAL = 120000;
 
+// Weather
 const WEATHER_POLL_INTERVAL = 300000;
 
 // Quiet Ops thresholds
@@ -88,9 +94,6 @@ const recentlyDeparted =
 // OPS WARM-UP
 // ======================================================
 
-// On startup, current delays/cancellations/diversions are
-// learned silently so they do NOT flood Discord.
-
 let opsWarmupComplete =
   false;
 
@@ -122,8 +125,6 @@ function clean(value) {
   return String(value).trim();
 }
 
-// ------------------------------------------------------
-
 function isJetBlue(plane) {
 
   return clean(
@@ -132,8 +133,6 @@ function isJetBlue(plane) {
     .toUpperCase()
     .startsWith("JBU");
 }
-
-// ------------------------------------------------------
 
 function isJetBlueFlight(flight) {
 
@@ -159,8 +158,6 @@ function isJetBlueFlight(flight) {
   );
 }
 
-// ------------------------------------------------------
-
 function flightCallsign(flight) {
 
   return clean(
@@ -169,8 +166,6 @@ function flightCallsign(flight) {
     flight.ident_iata
   ).toUpperCase();
 }
-
-// ------------------------------------------------------
 
 function airportCode(airport) {
 
@@ -188,8 +183,6 @@ function airportCode(airport) {
   ).toUpperCase();
 }
 
-// ------------------------------------------------------
-
 function distanceNM(
   lat1,
   lon1,
@@ -197,8 +190,7 @@ function distanceNM(
   lon2
 ) {
 
-  const R =
-    3440.065;
+  const R = 3440.065;
 
   const dLat =
     (lat2 - lat1) *
@@ -243,8 +235,6 @@ function distanceNM(
   );
 }
 
-// ------------------------------------------------------
-
 function formatTime(timestamp) {
 
   if (!timestamp) {
@@ -285,8 +275,6 @@ function formatTime(timestamp) {
   );
 }
 
-// ------------------------------------------------------
-
 function formatMinutes(seconds) {
 
   const value =
@@ -302,8 +290,6 @@ function formatMinutes(seconds) {
     value / 60
   );
 }
-
-// ------------------------------------------------------
 
 function getGroundSpeed(plane) {
 
@@ -321,8 +307,6 @@ function getGroundSpeed(plane) {
 
   return gs;
 }
-
-// ------------------------------------------------------
 
 function estimatedMinutesOut(
   distance,
@@ -1231,7 +1215,7 @@ async function checkAircraftTracking() {
       }
     }
 
-    // Tracking cleanup
+    // Clean tracking state after 30 minutes
 
     for (
       const [
@@ -1267,24 +1251,6 @@ async function checkAircraftTracking() {
 
 // ======================================================
 // QUIET OPS ALERTS
-// ======================================================
-//
-// STARTUP:
-// Current conditions are learned silently.
-//
-// AFTER WARM-UP:
-//
-// 0-44 min:
-// no delay alert
-//
-// 45-89 min:
-// one major delay alert
-//
-// 90+ min:
-// one severe delay alert
-//
-// No routine departure-delay alerts.
-//
 // ======================================================
 
 async function checkOpsAlerts() {
@@ -1334,7 +1300,7 @@ async function checkOpsAlerts() {
     }
 
     // ==================================================
-    // STARTUP WARM-UP / BASELINE
+    // OPS WARM-UP
     // ==================================================
 
     if (
@@ -1371,9 +1337,6 @@ async function checkOpsAlerts() {
         opsState.set(
           key,
           {
-            // Existing events are marked as already seen,
-            // so restart does not replay them.
-
             cancelledSent:
               flight.cancelled === true,
 
@@ -1423,7 +1386,6 @@ async function checkOpsAlerts() {
           key
         );
 
-      // New flight that appeared AFTER startup.
       if (!previous) {
 
         previous = {
@@ -1542,9 +1504,7 @@ async function checkOpsAlerts() {
         inboundFLL
       ) {
 
-        // ================================================
         // 90+ MINUTES
-        // ================================================
 
         if (
           arrivalDelay >=
@@ -1573,9 +1533,6 @@ async function checkOpsAlerts() {
           previous.severeDelaySent =
             true;
 
-          // If it jumped directly to 90+,
-          // don't send a separate 45-min alert.
-
           previous.majorDelaySent =
             true;
 
@@ -1590,9 +1547,7 @@ async function checkOpsAlerts() {
             true
         ) {
 
-          // ==============================================
           // 45+ MINUTES
-          // ==============================================
 
           await sendDiscord(
             ALERTS_WEBHOOK,
@@ -1909,7 +1864,9 @@ async function checkKFLL() {
         `DIST: ${distance.toFixed(1)} NM`
       );
 
+      // ==================================================
       // FIRST OBSERVATION
+      // ==================================================
 
       if (!previous) {
 
@@ -2260,6 +2217,7 @@ discordClient.on(
             `🔵 **Operations:** ${OPERATIONS_WEBHOOK ? "ONLINE" : "OFFLINE"}\n` +
             `🔑 **FlightAware:** ${FLIGHTAWARE_API_KEY ? "CONNECTED" : "OFFLINE"}\n` +
             `⚡ **Arrival Poll:** 10 seconds\n` +
+            `📡 **Tracking Poll:** 60 seconds\n` +
             `🔕 **Delay Alerts:** 45 / 90 min\n` +
             `🛡️ **Ops Warm-up:** ${opsWarmupComplete ? "COMPLETE" : "INITIALIZING"}\n` +
             `━━━━━━━━━━━━━━━━━━━━`,
@@ -2489,6 +2447,10 @@ console.log(
 );
 
 console.log(
+  "📡 TRACKING POLLING: 60 SECONDS"
+);
+
+console.log(
   "📢 Arrivals:",
   !!ARRIVALS_WEBHOOK
 );
@@ -2554,7 +2516,6 @@ if (
 // ======================================================
 
 // ARRIVAL / DEPARTURE
-
 checkKFLL();
 
 setInterval(
@@ -2563,7 +2524,6 @@ setInterval(
 );
 
 // TRACKING
-
 checkAircraftTracking();
 
 setInterval(
@@ -2571,8 +2531,7 @@ setInterval(
   TRACKING_POLL_INTERVAL
 );
 
-// OPS WARM-UP + ALERTS
-
+// OPS
 checkOpsAlerts();
 
 setInterval(
@@ -2581,7 +2540,6 @@ setInterval(
 );
 
 // WEATHER
-
 checkWeatherAlerts();
 
 setInterval(
