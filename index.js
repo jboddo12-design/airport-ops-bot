@@ -42,23 +42,16 @@ const FLIGHTAWARE_API_KEY =
 const KFLL_LAT = 26.0726;
 const KFLL_LON = -80.1527;
 
-// Arrival detector
 const ARRIVAL_RADIUS_NM = 8;
 const ARRIVAL_POLL_INTERVAL = 10000;
 
-// Long-range tracker
 const TRACKING_RADIUS_NM = 160;
-
-// CHANGED: 30 seconds -> 60 seconds
 const TRACKING_POLL_INTERVAL = 60000;
 
-// FlightAware operations
 const OPS_POLL_INTERVAL = 120000;
 
-// Weather
 const WEATHER_POLL_INTERVAL = 300000;
 
-// Quiet Ops thresholds
 const MAJOR_DELAY_SECONDS = 45 * 60;
 const SEVERE_DELAY_SECONDS = 90 * 60;
 
@@ -89,10 +82,6 @@ const weatherAlertsSeen =
 
 const recentlyDeparted =
   new Map();
-
-// ======================================================
-// OPS WARM-UP
-// ======================================================
 
 let opsWarmupComplete =
   false;
@@ -190,7 +179,8 @@ function distanceNM(
   lon2
 ) {
 
-  const R = 3440.065;
+  const R =
+    3440.065;
 
   const dLat =
     (lat2 - lat1) *
@@ -365,14 +355,14 @@ async function getAircraft(radius) {
     ) {
 
       console.log(
-        `⚠️ ADS-B rate limited (${radius} NM) — skipping this poll`
+        `ADS-B RATE LIMITED (${radius} NM) - SKIPPING POLL`
       );
 
       return null;
     }
 
     console.error(
-      `❌ ADS-B request error (${radius} NM):`,
+      `ADS-B REQUEST ERROR (${radius} NM):`,
       error.response?.status ||
       error.message
     );
@@ -419,7 +409,7 @@ async function flightAwareGet(
   } catch (error) {
 
     console.error(
-      `❌ FlightAware ${path}:`,
+      `FlightAware ${path}:`,
       error.response?.data ||
       error.message
     );
@@ -533,7 +523,7 @@ async function sendDiscord(
   if (!webhook) {
 
     console.error(
-      "❌ Discord webhook missing"
+      "Discord webhook missing"
     );
 
     return;
@@ -560,7 +550,7 @@ async function sendDiscord(
   } catch (error) {
 
     console.error(
-      "❌ Discord webhook error:",
+      "Discord webhook error:",
       error.response?.data ||
       error.message
     );
@@ -644,7 +634,7 @@ async function announceArrival(
   } else {
 
     console.log(
-      `⚠️ No FlightAware details found for ${callsign}`
+      `No FlightAware details found for ${callsign}`
     );
   }
 
@@ -1215,8 +1205,6 @@ async function checkAircraftTracking() {
       }
     }
 
-    // Clean tracking state after 30 minutes
-
     for (
       const [
         id,
@@ -1242,7 +1230,7 @@ async function checkAircraftTracking() {
   } catch (error) {
 
     console.error(
-      "❌ Tracking error:",
+      "Tracking error:",
       error.response?.data ||
       error.message
     );
@@ -1300,7 +1288,7 @@ async function checkOpsAlerts() {
     }
 
     // ==================================================
-    // OPS WARM-UP
+    // STARTUP WARM-UP
     // ==================================================
 
     if (
@@ -1363,7 +1351,7 @@ async function checkOpsAlerts() {
         true;
 
       console.log(
-        "🟢 Ops warm-up complete — existing alerts suppressed"
+        "🟢 Ops warm-up complete - existing alerts suppressed"
       );
 
       return;
@@ -1452,7 +1440,7 @@ async function checkOpsAlerts() {
           true;
 
         console.log(
-          `❌ Cancellation alert: ${callsign}`
+          `CANCELLATION ALERT: ${callsign}`
         );
       }
 
@@ -1482,7 +1470,7 @@ async function checkOpsAlerts() {
           true;
 
         console.log(
-          `↪️ Diversion alert: ${callsign}`
+          `DIVERSION ALERT: ${callsign}`
         );
       }
 
@@ -1504,7 +1492,9 @@ async function checkOpsAlerts() {
         inboundFLL
       ) {
 
+        // =================================================
         // 90+ MINUTES
+        // =================================================
 
         if (
           arrivalDelay >=
@@ -1537,7 +1527,7 @@ async function checkOpsAlerts() {
             true;
 
           console.log(
-            `🔴 90+ min delay alert: ${callsign}`
+            `90+ MIN DELAY ALERT: ${callsign}`
           );
 
         } else if (
@@ -1547,7 +1537,9 @@ async function checkOpsAlerts() {
             true
         ) {
 
+          // ===============================================
           // 45+ MINUTES
+          // ===============================================
 
           await sendDiscord(
             ALERTS_WEBHOOK,
@@ -1570,7 +1562,7 @@ async function checkOpsAlerts() {
             true;
 
           console.log(
-            `⚠️ 45+ min delay alert: ${callsign}`
+            `45+ MIN DELAY ALERT: ${callsign}`
           );
         }
       }
@@ -1617,7 +1609,7 @@ async function checkOpsAlerts() {
   } catch (error) {
 
     console.error(
-      "❌ Ops alert error:",
+      "Ops alert error:",
       error.response?.data ||
       error.message
     );
@@ -1764,7 +1756,7 @@ async function checkWeatherAlerts() {
   } catch (error) {
 
     console.error(
-      "❌ Weather alert error:",
+      "Weather alert error:",
       error.response?.data ||
       error.message
     );
@@ -1864,10 +1856,6 @@ async function checkKFLL() {
         `DIST: ${distance.toFixed(1)} NM`
       );
 
-      // ==================================================
-      // FIRST OBSERVATION
-      // ==================================================
-
       if (!previous) {
 
         aircraftState.set(
@@ -1945,6 +1933,8 @@ async function checkKFLL() {
           plane
         );
       }
+
+      // RETURN TO FLL
 
       await checkReturnToFLL(
         plane,
@@ -2071,7 +2061,7 @@ async function checkKFLL() {
   } catch (error) {
 
     console.error(
-      "❌ KFLL ADS-B error:",
+      "KFLL ADS-B error:",
       error.response?.data ||
       error.message
     );
@@ -2130,7 +2120,7 @@ const slashCommands = [
 );
 
 // ======================================================
-// REGISTER COMMANDS
+// REGISTER SLASH COMMANDS
 // ======================================================
 
 async function registerSlashCommands() {
@@ -2152,7 +2142,7 @@ async function registerSlashCommands() {
     if (!applicationId) {
 
       console.error(
-        "❌ Could not determine Discord application ID"
+        "Could not determine Discord application ID"
       );
 
       return;
@@ -2175,7 +2165,7 @@ async function registerSlashCommands() {
   } catch (error) {
 
     console.error(
-      "❌ Slash command registration error:",
+      "Slash command registration error:",
       error.message
     );
   }
@@ -2197,7 +2187,9 @@ discordClient.on(
 
     try {
 
+      // ==================================================
       // STATUS
+      // ==================================================
 
       if (
         interaction.commandName ===
@@ -2229,7 +2221,9 @@ discordClient.on(
         return;
       }
 
+      // ==================================================
       // ARRIVALS
+      // ==================================================
 
       if (
         interaction.commandName ===
@@ -2250,7 +2244,9 @@ discordClient.on(
         return;
       }
 
+      // ==================================================
       // TRACKING
+      // ==================================================
 
       if (
         interaction.commandName ===
@@ -2271,7 +2267,9 @@ discordClient.on(
         return;
       }
 
+      // ==================================================
       // OPS
+      // ==================================================
 
       if (
         interaction.commandName ===
@@ -2286,15 +2284,15 @@ discordClient.on(
         await checkOpsAlerts();
 
         await interaction.editReply(
-          opsWarmupComplete
-            ? "🚨 JetBlue Ops Alerts check completed."
-            : "🟡 Ops Alerts warm-up is still initializing."
+          "🚨 JetBlue Ops Alerts check completed."
         );
 
         return;
       }
 
+      // ==================================================
       // WEATHER
+      // ==================================================
 
       if (
         interaction.commandName ===
@@ -2318,7 +2316,7 @@ discordClient.on(
     } catch (error) {
 
       console.error(
-        "❌ Slash command error:",
+        "Slash command error:",
         error.message
       );
 
@@ -2329,7 +2327,7 @@ discordClient.on(
 
         await interaction
           .editReply(
-            "❌ Command failed. Check Render Live Tail."
+            "Command failed. Check Render Live Tail."
           )
           .catch(
             () => {}
@@ -2340,7 +2338,7 @@ discordClient.on(
         await interaction
           .reply({
             content:
-              "❌ Command failed. Check Render Live Tail.",
+              "Command failed. Check Render Live Tail.",
 
             ephemeral:
               true
@@ -2406,24 +2404,25 @@ console.log(
   "   🛡️ STARTUP WARM-UP ENABLED"
 );
 
+// Clean startup logs so Render does not mark these red
 console.log(
-  "   ⚠️ 45 MIN DELAY ALERT"
+  "   45 MIN DELAY ALERT ENABLED"
 );
 
 console.log(
-  "   🔴 90 MIN DELAY ALERT"
+  "   90 MIN DELAY ALERT ENABLED"
 );
 
 console.log(
-  "   ❌ CANCELLATIONS ENABLED"
+  "   CANCELLATIONS ENABLED"
 );
 
 console.log(
-  "   ↪️ DIVERSIONS ENABLED"
+  "   DIVERSIONS ENABLED"
 );
 
 console.log(
-  "   🔕 DEPARTURE DELAY SPAM DISABLED"
+  "   DEPARTURE DELAY SPAM DISABLED"
 );
 
 console.log(
@@ -2498,7 +2497,7 @@ if (
       error => {
 
         console.error(
-          "❌ Discord login failed:",
+          "Discord login failed:",
           error.message
         );
       }
@@ -2507,7 +2506,7 @@ if (
 } else {
 
   console.error(
-    "❌ DISCORD_BOT_TOKEN is missing"
+    "DISCORD_BOT_TOKEN is missing"
   );
 }
 
@@ -2515,7 +2514,7 @@ if (
 // START LOOPS
 // ======================================================
 
-// ARRIVAL / DEPARTURE
+// ARRIVALS / DEPARTURES
 checkKFLL();
 
 setInterval(
@@ -2523,7 +2522,7 @@ setInterval(
   ARRIVAL_POLL_INTERVAL
 );
 
-// TRACKING
+// LONG-RANGE TRACKING
 checkAircraftTracking();
 
 setInterval(
@@ -2531,7 +2530,7 @@ setInterval(
   TRACKING_POLL_INTERVAL
 );
 
-// OPS
+// OPS ALERTS
 checkOpsAlerts();
 
 setInterval(
