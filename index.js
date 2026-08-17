@@ -13,27 +13,18 @@ const {
 // ENVIRONMENT VARIABLES
 // ======================================================
 
-const DISCORD_BOT_TOKEN =
-  process.env.DISCORD_BOT_TOKEN;
+const DISCORD_BOT_TOKEN = process.env.DISCORD_BOT_TOKEN;
 
-const ARRIVALS_WEBHOOK =
-  process.env.DISCORD_ARRIVALS_WEBHOOK;
-
-const ALERTS_WEBHOOK =
-  process.env.DISCORD_ALERTS_WEBHOOK;
-
-const TRACKING_WEBHOOK =
-  process.env.DISCORD_TRACKING_WEBHOOK;
-
-const WEATHER_WEBHOOK =
-  process.env.DISCORD_WEATHER_WEBHOOK;
+const ARRIVALS_WEBHOOK = process.env.DISCORD_ARRIVALS_WEBHOOK;
+const ALERTS_WEBHOOK = process.env.DISCORD_ALERTS_WEBHOOK;
+const TRACKING_WEBHOOK = process.env.DISCORD_TRACKING_WEBHOOK;
+const WEATHER_WEBHOOK = process.env.DISCORD_WEATHER_WEBHOOK;
 
 const OPERATIONS_WEBHOOK =
   process.env.DISCORD_OPERATIONS_WEBHOOK ||
   process.env.DISCORD_FLIGHT_STATUS_WEBHOOK;
 
-const FLIGHTAWARE_API_KEY =
-  process.env.FLIGHTAWARE_API_KEY;
+const FLIGHTAWARE_API_KEY = process.env.FLIGHTAWARE_API_KEY;
 
 // ======================================================
 // KFLL SETTINGS
@@ -42,16 +33,21 @@ const FLIGHTAWARE_API_KEY =
 const KFLL_LAT = 26.0726;
 const KFLL_LON = -80.1527;
 
+// Arrivals
 const ARRIVAL_RADIUS_NM = 8;
 const ARRIVAL_POLL_INTERVAL = 10000;
 
+// Tracking
 const TRACKING_RADIUS_NM = 160;
 const TRACKING_POLL_INTERVAL = 60000;
 
+// Ops
 const OPS_POLL_INTERVAL = 120000;
 
+// Weather
 const WEATHER_POLL_INTERVAL = 300000;
 
+// Delay thresholds
 const MAJOR_DELAY_SECONDS = 45 * 60;
 const SEVERE_DELAY_SECONDS = 90 * 60;
 
@@ -59,50 +55,35 @@ const SEVERE_DELAY_SECONDS = 90 * 60;
 // MEMORY
 // ======================================================
 
-const aircraftState =
-  new Map();
+const aircraftState = new Map();
+const announcedLandings = new Map();
+const announcedDepartures = new Map();
 
-const announcedLandings =
-  new Map();
+const trackingState = new Map();
+const announcedTracking = new Map();
 
-const announcedDepartures =
-  new Map();
+const opsState = new Map();
+const weatherAlertsSeen = new Map();
 
-const trackingState =
-  new Map();
+const recentlyDeparted = new Map();
 
-const announcedTracking =
-  new Map();
-
-const opsState =
-  new Map();
-
-const weatherAlertsSeen =
-  new Map();
-
-const recentlyDeparted =
-  new Map();
-
-let opsWarmupComplete =
-  false;
+let opsWarmupComplete = false;
 
 // ======================================================
 // DISCORD BOT
 // ======================================================
 
-const discordClient =
-  new Client({
-    intents: [
-      GatewayIntentBits.Guilds
-    ]
-  });
+const discordClient = new Client({
+  intents: [
+    GatewayIntentBits.Guilds
+  ]
+});
 
 // ======================================================
 // HELPERS
 // ======================================================
 
 function clean(value) {
-
   if (
     value === null ||
     value === undefined ||
@@ -115,29 +96,23 @@ function clean(value) {
 }
 
 function isJetBlue(plane) {
-
-  return clean(
-    plane.flight
-  )
+  return clean(plane.flight)
     .toUpperCase()
     .startsWith("JBU");
 }
 
 function isJetBlueFlight(flight) {
+  const ident = clean(
+    flight.ident_icao ||
+    flight.ident ||
+    flight.ident_iata
+  ).toUpperCase();
 
-  const ident =
-    clean(
-      flight.ident_icao ||
-      flight.ident ||
-      flight.ident_iata
-    ).toUpperCase();
-
-  const operator =
-    clean(
-      flight.operator_icao ||
-      flight.operator ||
-      flight.operator_iata
-    ).toUpperCase();
+  const operator = clean(
+    flight.operator_icao ||
+    flight.operator ||
+    flight.operator_iata
+  ).toUpperCase();
 
   return (
     ident.startsWith("JBU") ||
@@ -148,7 +123,6 @@ function isJetBlueFlight(flight) {
 }
 
 function flightCallsign(flight) {
-
   return clean(
     flight.ident_icao ||
     flight.ident ||
@@ -157,7 +131,6 @@ function flightCallsign(flight) {
 }
 
 function airportCode(airport) {
-
   if (!airport) {
     return "N/A";
   }
@@ -172,15 +145,8 @@ function airportCode(airport) {
   ).toUpperCase();
 }
 
-function distanceNM(
-  lat1,
-  lon1,
-  lat2,
-  lon2
-) {
-
-  const R =
-    3440.065;
+function distanceNM(lat1, lon1, lat2, lon2) {
+  const R = 3440.065;
 
   const dLat =
     (lat2 - lat1) *
@@ -193,40 +159,22 @@ function distanceNM(
     180;
 
   const a =
-    Math.sin(
-      dLat / 2
-    ) ** 2 +
-
-    Math.cos(
-      lat1 *
-      Math.PI /
-      180
-    ) *
-
-    Math.cos(
-      lat2 *
-      Math.PI /
-      180
-    ) *
-
-    Math.sin(
-      dLon / 2
-    ) ** 2;
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(lat1 * Math.PI / 180) *
+    Math.cos(lat2 * Math.PI / 180) *
+    Math.sin(dLon / 2) ** 2;
 
   return (
     R *
     2 *
     Math.atan2(
       Math.sqrt(a),
-      Math.sqrt(
-        1 - a
-      )
+      Math.sqrt(1 - a)
     )
   );
 }
 
 function formatTime(timestamp) {
-
   if (!timestamp) {
     return "N/A";
   }
@@ -236,11 +184,7 @@ function formatTime(timestamp) {
       ? timestamp
       : new Date(timestamp);
 
-  if (
-    Number.isNaN(
-      date.getTime()
-    )
-  ) {
+  if (Number.isNaN(date.getTime())) {
     return "N/A";
   }
 
@@ -248,17 +192,10 @@ function formatTime(timestamp) {
     new Intl.DateTimeFormat(
       "en-US",
       {
-        timeZone:
-          "America/New_York",
-
-        hour:
-          "2-digit",
-
-        minute:
-          "2-digit",
-
-        hour12:
-          true
+        timeZone: "America/New_York",
+        hour: "2-digit",
+        minute: "2-digit",
+        hour12: true
       }
     ).format(date) +
     " ET"
@@ -266,27 +203,17 @@ function formatTime(timestamp) {
 }
 
 function formatMinutes(seconds) {
+  const value = Number(seconds);
 
-  const value =
-    Number(seconds);
-
-  if (
-    !Number.isFinite(value)
-  ) {
+  if (!Number.isFinite(value)) {
     return "N/A";
   }
 
-  return Math.round(
-    value / 60
-  );
+  return Math.round(value / 60);
 }
 
 function getGroundSpeed(plane) {
-
-  const gs =
-    Number(
-      plane.gs
-    );
+  const gs = Number(plane.gs);
 
   if (
     !Number.isFinite(gs) ||
@@ -298,25 +225,14 @@ function getGroundSpeed(plane) {
   return gs;
 }
 
-function estimatedMinutesOut(
-  distance,
-  plane
-) {
-
-  const gs =
-    getGroundSpeed(
-      plane
-    );
+function estimatedMinutesOut(distance, plane) {
+  const gs = getGroundSpeed(plane);
 
   if (!gs) {
     return null;
   }
 
-  return (
-    distance /
-    gs *
-    60
-  );
+  return distance / gs * 60;
 }
 
 // ======================================================
@@ -324,7 +240,6 @@ function estimatedMinutesOut(
 // ======================================================
 
 async function getAircraft(radius) {
-
   const url =
     `https://api.adsb.lol/v2/point/` +
     `${KFLL_LAT}/` +
@@ -332,37 +247,29 @@ async function getAircraft(radius) {
     `${radius}`;
 
   try {
-
-    const response =
-      await axios.get(
-        url,
-        {
-          timeout:
-            10000
-        }
-      );
-
-    return (
-      response.data?.ac ||
-      []
+    const response = await axios.get(
+      url,
+      {
+        timeout: 10000
+      }
     );
 
-  } catch (error) {
+    return response.data?.ac || [];
 
+  } catch (error) {
     if (
       error.response?.status === 420 ||
       error.response?.status === 429
     ) {
-
       console.log(
-        `ADS-B RATE LIMITED (${radius} NM) - SKIPPING POLL`
+        `ADS-B rate limited (${radius} NM) - skipping this poll`
       );
 
       return null;
     }
 
     console.error(
-      `ADS-B REQUEST ERROR (${radius} NM):`,
+      `ADS-B request error (${radius} NM):`,
       error.response?.status ||
       error.message
     );
@@ -375,39 +282,28 @@ async function getAircraft(radius) {
 // FLIGHTAWARE
 // ======================================================
 
-async function flightAwareGet(
-  path,
-  params = {}
-) {
-
-  if (
-    !FLIGHTAWARE_API_KEY
-  ) {
+async function flightAwareGet(path, params = {}) {
+  if (!FLIGHTAWARE_API_KEY) {
     return null;
   }
 
   try {
+    const response = await axios.get(
+      `https://aeroapi.flightaware.com/aeroapi${path}`,
+      {
+        headers: {
+          "x-apikey": FLIGHTAWARE_API_KEY
+        },
 
-    const response =
-      await axios.get(
-        `https://aeroapi.flightaware.com/aeroapi${path}`,
-        {
-          headers: {
-            "x-apikey":
-              FLIGHTAWARE_API_KEY
-          },
+        params,
 
-          params,
-
-          timeout:
-            15000
-        }
-      );
+        timeout: 15000
+      }
+    );
 
     return response.data;
 
   } catch (error) {
-
     console.error(
       `FlightAware ${path}:`,
       error.response?.data ||
@@ -422,10 +318,7 @@ async function flightAwareGet(
 // FLIGHT DETAILS
 // ======================================================
 
-async function getFlightDetails(
-  callsign
-) {
-
+async function getFlightDetails(callsign) {
   if (
     !FLIGHTAWARE_API_KEY ||
     !callsign ||
@@ -434,16 +327,11 @@ async function getFlightDetails(
     return null;
   }
 
-  const data =
-    await flightAwareGet(
-      `/flights/${encodeURIComponent(
-        callsign
-      )}`
-    );
+  const data = await flightAwareGet(
+    `/flights/${encodeURIComponent(callsign)}`
+  );
 
-  const flights =
-    data?.flights ||
-    [];
+  const flights = data?.flights || [];
 
   if (
     !Array.isArray(flights) ||
@@ -452,33 +340,28 @@ async function getFlightDetails(
     return null;
   }
 
-  const fllFlight =
-    flights.find(
-      flight => {
+  // Prefer the current flight going to FLL
+  const fllFlight = flights.find(
+    flight => {
+      const destination =
+        airportCode(flight.destination);
 
-        const destination =
-          airportCode(
-            flight.destination
-          );
-
-        return (
-          destination === "FLL" ||
-          destination === "KFLL"
-        );
-      }
-    );
+      return (
+        destination === "FLL" ||
+        destination === "KFLL"
+      );
+    }
+  );
 
   if (fllFlight) {
     return fllFlight;
   }
 
-  const withOrigin =
-    flights.find(
-      flight =>
-        airportCode(
-          flight.origin
-        ) !== "N/A"
-    );
+  // Otherwise choose one with a known origin
+  const withOrigin = flights.find(
+    flight =>
+      airportCode(flight.origin) !== "N/A"
+  );
 
   if (withOrigin) {
     return withOrigin;
@@ -488,25 +371,19 @@ async function getFlightDetails(
 }
 
 // ======================================================
-// KFLL FLIGHTS
+// KFLL FLIGHTAWARE OPERATIONS
 // ======================================================
 
 async function getKFLLFlights() {
-
-  if (
-    !FLIGHTAWARE_API_KEY
-  ) {
+  if (!FLIGHTAWARE_API_KEY) {
     return null;
   }
 
   return await flightAwareGet(
     "/airports/KFLL/flights",
     {
-      airline:
-        "JBU",
-
-      max_pages:
-        1
+      airline: "JBU",
+      max_pages: 1
     }
   );
 }
@@ -515,13 +392,8 @@ async function getKFLLFlights() {
 // DISCORD WEBHOOK
 // ======================================================
 
-async function sendDiscord(
-  webhook,
-  message
-) {
-
+async function sendDiscord(webhook, message) {
   if (!webhook) {
-
     console.error(
       "Discord webhook missing"
     );
@@ -530,16 +402,13 @@ async function sendDiscord(
   }
 
   try {
-
     await axios.post(
       webhook,
       {
-        content:
-          message
+        content: message
       },
       {
-        timeout:
-          10000
+        timeout: 10000
       }
     );
 
@@ -548,7 +417,6 @@ async function sendDiscord(
     );
 
   } catch (error) {
-
     console.error(
       "Discord webhook error:",
       error.response?.data ||
@@ -558,64 +426,36 @@ async function sendDiscord(
 }
 
 // ======================================================
-// ARRIVAL
+// ARRIVAL NOTIFICATION
 // ======================================================
 
-async function announceArrival(
-  plane
-) {
-
+async function announceArrival(plane) {
   const callsign =
-    clean(
-      plane.flight
-    ).toUpperCase();
+    clean(plane.flight).toUpperCase();
 
   const hex =
-    clean(
-      plane.hex
-    );
+    clean(plane.hex);
 
   const landingId =
     `${hex}-${callsign}`;
 
-  if (
-    announcedLandings.has(
-      landingId
-    )
-  ) {
+  if (announcedLandings.has(landingId)) {
     return;
   }
 
-  let origin =
-    "N/A";
-
-  let aircraft =
-    clean(
-      plane.t
-    );
-
-  let registration =
-    clean(
-      plane.r
-    );
+  let origin = "N/A";
+  let aircraft = clean(plane.t);
+  let registration = clean(plane.r);
 
   const flight =
-    await getFlightDetails(
-      callsign
-    );
+    await getFlightDetails(callsign);
 
   if (flight) {
-
     const foundOrigin =
-      airportCode(
-        flight.origin
-      );
+      airportCode(flight.origin);
 
-    if (
-      foundOrigin !== "N/A"
-    ) {
-      origin =
-        foundOrigin;
+    if (foundOrigin !== "N/A") {
+      origin = foundOrigin;
     }
 
     aircraft =
@@ -632,7 +472,6 @@ async function announceArrival(
     );
 
   } else {
-
     console.log(
       `No FlightAware details found for ${callsign}`
     );
@@ -656,9 +495,7 @@ async function announceArrival(
     `🛩️ **Aircraft:** ${aircraft}\n` +
     `🏷️ **Registration:** ${registration}\n` +
     `🛬 **Status:** LANDED\n` +
-    `⏱️ **Touchdown:** ${formatTime(
-      Date.now()
-    )}\n` +
+    `⏱️ **Touchdown:** ${formatTime(Date.now())}\n` +
     `━━━━━━━━━━━━━━━━━━━━`;
 
   await sendDiscord(
@@ -671,28 +508,17 @@ async function announceArrival(
 // LAST DEPARTURE
 // ======================================================
 
-async function announceLastDeparture(
-  plane
-) {
-
+async function announceLastDeparture(plane) {
   const callsign =
-    clean(
-      plane.flight
-    ).toUpperCase();
+    clean(plane.flight).toUpperCase();
 
   const hex =
-    clean(
-      plane.hex
-    );
+    clean(plane.hex);
 
   const departureId =
     `${hex}-${callsign}`;
 
-  if (
-    announcedDepartures.has(
-      departureId
-    )
-  ) {
+  if (announcedDepartures.has(departureId)) {
     return;
   }
 
@@ -705,9 +531,7 @@ async function announceLastDeparture(
     hex,
     {
       callsign,
-
-      departedAt:
-        Date.now()
+      departedAt: Date.now()
     }
   );
 
@@ -716,29 +540,15 @@ async function announceLastDeparture(
   );
 
   const flight =
-    await getFlightDetails(
-      callsign
-    );
+    await getFlightDetails(callsign);
 
-  let destination =
-    "N/A";
-
-  let aircraft =
-    clean(
-      plane.t
-    );
-
-  let registration =
-    clean(
-      plane.r
-    );
+  let destination = "N/A";
+  let aircraft = clean(plane.t);
+  let registration = clean(plane.r);
 
   if (flight) {
-
     destination =
-      airportCode(
-        flight.destination
-      );
+      airportCode(flight.destination);
 
     aircraft =
       flight.aircraft_type ||
@@ -758,9 +568,7 @@ async function announceLastDeparture(
     `🛩️ **Aircraft:** ${aircraft}\n` +
     `🏷️ **Registration:** ${registration}\n` +
     `🛫 **Status:** AIRBORNE\n` +
-    `⏱️ **Takeoff:** ${formatTime(
-      Date.now()
-    )}\n` +
+    `⏱️ **Takeoff:** ${formatTime(Date.now())}\n` +
     `━━━━━━━━━━━━━━━━━━━━`;
 
   await sendDiscord(
@@ -778,16 +586,11 @@ async function checkReturnToFLL(
   distance,
   altitude
 ) {
-
   const hex =
-    clean(
-      plane.hex
-    );
+    clean(plane.hex);
 
   const departed =
-    recentlyDeparted.get(
-      hex
-    );
+    recentlyDeparted.get(hex);
 
   if (!departed) {
     return;
@@ -799,16 +602,9 @@ async function checkReturnToFLL(
 
   if (
     age >
-    2 *
-    60 *
-    60 *
-    1000
+    2 * 60 * 60 * 1000
   ) {
-
-    recentlyDeparted.delete(
-      hex
-    );
-
+    recentlyDeparted.delete(hex);
     return;
   }
 
@@ -826,11 +622,7 @@ async function checkReturnToFLL(
   const alertId =
     `RETURN-${hex}-${departed.callsign}`;
 
-  if (
-    announcedTracking.has(
-      alertId
-    )
-  ) {
+  if (announcedTracking.has(alertId)) {
     return;
   }
 
@@ -846,40 +638,29 @@ async function checkReturnToFLL(
     `━━━━━━━━━━━━━━━━━━━━\n` +
     `✈️ **Flight:** ${departed.callsign}\n` +
     `🚨 **Status:** RETURNED TO KFLL\n` +
-    `⏱️ **Time:** ${formatTime(
-      Date.now()
-    )}\n` +
+    `⏱️ **Time:** ${formatTime(Date.now())}\n` +
     `━━━━━━━━━━━━━━━━━━━━`
   );
 
-  recentlyDeparted.delete(
-    hex
-  );
+  recentlyDeparted.delete(hex);
 }
 
 // ======================================================
-// AIRCRAFT TRACKING
+// LONG RANGE AIRCRAFT TRACKING
 // ======================================================
 
 async function checkAircraftTracking() {
-
-  if (
-    !TRACKING_WEBHOOK
-  ) {
+  if (!TRACKING_WEBHOOK) {
     return;
   }
 
   try {
-
     const aircraft =
       await getAircraft(
         TRACKING_RADIUS_NM
       );
 
-    if (
-      aircraft === null
-    ) {
-
+    if (aircraft === null) {
       console.log(
         "📡 Tracking poll skipped"
       );
@@ -888,9 +669,7 @@ async function checkAircraftTracking() {
     }
 
     const jetblue =
-      aircraft.filter(
-        isJetBlue
-      );
+      aircraft.filter(isJetBlue);
 
     const now =
       Date.now();
@@ -899,10 +678,7 @@ async function checkAircraftTracking() {
       `📡 JBU tracking aircraft: ${jetblue.length}`
     );
 
-    for (
-      const plane of jetblue
-    ) {
-
+    for (const plane of jetblue) {
       if (
         plane.lat === undefined ||
         plane.lon === undefined
@@ -911,14 +687,10 @@ async function checkAircraftTracking() {
       }
 
       const lat =
-        Number(
-          plane.lat
-        );
+        Number(plane.lat);
 
       const lon =
-        Number(
-          plane.lon
-        );
+        Number(plane.lon);
 
       const distance =
         distanceNM(
@@ -932,8 +704,7 @@ async function checkAircraftTracking() {
         plane.alt_baro === "ground"
           ? 0
           : Number(
-              plane.alt_baro ||
-              0
+              plane.alt_baro || 0
             );
 
       if (
@@ -944,30 +715,23 @@ async function checkAircraftTracking() {
       }
 
       const callsign =
-        clean(
-          plane.flight
-        ).toUpperCase();
+        clean(plane.flight).toUpperCase();
 
       const hex =
-        clean(
-          plane.hex
-        );
+        clean(plane.hex);
 
       const id =
         `${hex}-${callsign}`;
 
       const previous =
-        trackingState.get(
-          id
-        );
+        trackingState.get(id);
 
       trackingState.set(
         id,
         {
           distance,
           altitude,
-          timestamp:
-            now
+          timestamp: now
         }
       );
 
@@ -989,13 +753,10 @@ async function checkAircraftTracking() {
           plane
         );
 
-      let origin =
-        "N/A";
+      let origin = "N/A";
 
       let registration =
-        clean(
-          plane.r
-        );
+        clean(plane.r);
 
       // ==================================================
       // 20 MIN OUT
@@ -1006,23 +767,16 @@ async function checkAircraftTracking() {
         etaMinutes <= 21 &&
         etaMinutes > 17
       ) {
-
         const alertId =
           `${id}-20MIN`;
 
         if (
-          !announcedTracking.has(
-            alertId
-          )
+          !announcedTracking.has(alertId)
         ) {
-
           const flight =
-            await getFlightDetails(
-              callsign
-            );
+            await getFlightDetails(callsign);
 
           if (flight) {
-
             const destination =
               airportCode(
                 flight.destination
@@ -1058,9 +812,7 @@ async function checkAircraftTracking() {
             `📍 **${origin} → FLL**\n` +
             `🏷️ **${registration}**\n` +
             `📏 **Distance:** ${distance.toFixed(1)} NM\n` +
-            `⏱️ **Estimated:** ${Math.round(
-              etaMinutes
-            )} min\n` +
+            `⏱️ **Estimated:** ${Math.round(etaMinutes)} min\n` +
             `━━━━━━━━━━━━━━━━━━━━`
           );
         }
@@ -1075,23 +827,16 @@ async function checkAircraftTracking() {
         etaMinutes <= 16 &&
         etaMinutes > 12
       ) {
-
         const alertId =
           `${id}-15MIN`;
 
         if (
-          !announcedTracking.has(
-            alertId
-          )
+          !announcedTracking.has(alertId)
         ) {
-
           const flight =
-            await getFlightDetails(
-              callsign
-            );
+            await getFlightDetails(callsign);
 
           if (flight) {
-
             const destination =
               airportCode(
                 flight.destination
@@ -1127,9 +872,7 @@ async function checkAircraftTracking() {
             `📍 **${origin} → FLL**\n` +
             `🏷️ **${registration}**\n` +
             `📏 **Distance:** ${distance.toFixed(1)} NM\n` +
-            `⏱️ **Estimated:** ${Math.round(
-              etaMinutes
-            )} min\n` +
+            `⏱️ **Estimated:** ${Math.round(etaMinutes)} min\n` +
             `━━━━━━━━━━━━━━━━━━━━`
           );
         }
@@ -1144,23 +887,16 @@ async function checkAircraftTracking() {
         altitude > 500 &&
         altitude <= 5000
       ) {
-
         const alertId =
           `${id}-APPROACH`;
 
         if (
-          !announcedTracking.has(
-            alertId
-          )
+          !announcedTracking.has(alertId)
         ) {
-
           const flight =
-            await getFlightDetails(
-              callsign
-            );
+            await getFlightDetails(callsign);
 
           if (flight) {
-
             const destination =
               airportCode(
                 flight.destination
@@ -1196,39 +932,28 @@ async function checkAircraftTracking() {
             `📍 **${origin} → FLL**\n` +
             `🏷️ **${registration}**\n` +
             `📏 **Distance:** ${distance.toFixed(1)} NM\n` +
-            `⬇️ **Altitude:** ${Math.round(
-              altitude
-            ).toLocaleString()} ft\n` +
+            `⬇️ **Altitude:** ${Math.round(altitude).toLocaleString()} ft\n` +
             `━━━━━━━━━━━━━━━━━━━━`
           );
         }
       }
     }
 
+    // Clean tracking memory after 30 minutes
     for (
-      const [
-        id,
-        state
-      ]
+      const [id, state]
       of trackingState.entries()
     ) {
-
       if (
         now -
         state.timestamp >
-        30 *
-        60 *
-        1000
+        30 * 60 * 1000
       ) {
-
-        trackingState.delete(
-          id
-        );
+        trackingState.delete(id);
       }
     }
 
   } catch (error) {
-
     console.error(
       "Tracking error:",
       error.response?.data ||
@@ -1242,7 +967,6 @@ async function checkAircraftTracking() {
 // ======================================================
 
 async function checkOpsAlerts() {
-
   if (
     !ALERTS_WEBHOOK ||
     !FLIGHTAWARE_API_KEY
@@ -1251,7 +975,6 @@ async function checkOpsAlerts() {
   }
 
   try {
-
     const data =
       await getKFLLFlights();
 
@@ -1264,22 +987,15 @@ async function checkOpsAlerts() {
       ...(data.scheduled_departures || []),
       ...(data.arrivals || []),
       ...(data.departures || [])
-    ].filter(
-      isJetBlueFlight
-    );
+    ].filter(isJetBlueFlight);
 
     const uniqueFlights =
       new Map();
 
-    for (
-      const flight of flights
-    ) {
-
+    for (const flight of flights) {
       const key =
         flight.fa_flight_id ||
-        `${flightCallsign(
-          flight
-        )}-${flight.scheduled_off || flight.scheduled_on || ""}`;
+        `${flightCallsign(flight)}-${flight.scheduled_off || flight.scheduled_on || ""}`;
 
       uniqueFlights.set(
         key,
@@ -1291,22 +1007,15 @@ async function checkOpsAlerts() {
     // STARTUP WARM-UP
     // ==================================================
 
-    if (
-      !opsWarmupComplete
-    ) {
-
+    if (!opsWarmupComplete) {
       console.log(
         `🟡 Ops warm-up: baselining ${uniqueFlights.size} JetBlue flights`
       );
 
       for (
-        const [
-          key,
-          flight
-        ]
+        const [key, flight]
         of uniqueFlights.entries()
       ) {
-
         const destination =
           airportCode(
             flight.destination
@@ -1318,8 +1027,7 @@ async function checkOpsAlerts() {
 
         const arrivalDelay =
           Number(
-            flight.arrival_delay ||
-            0
+            flight.arrival_delay || 0
           );
 
         opsState.set(
@@ -1334,12 +1042,12 @@ async function checkOpsAlerts() {
             majorDelaySent:
               inboundFLL &&
               arrivalDelay >=
-                MAJOR_DELAY_SECONDS,
+              MAJOR_DELAY_SECONDS,
 
             severeDelaySent:
               inboundFLL &&
               arrivalDelay >=
-                SEVERE_DELAY_SECONDS,
+              SEVERE_DELAY_SECONDS,
 
             timestamp:
               Date.now()
@@ -1347,8 +1055,7 @@ async function checkOpsAlerts() {
         );
       }
 
-      opsWarmupComplete =
-        true;
+      opsWarmupComplete = true;
 
       console.log(
         "🟢 Ops warm-up complete - existing alerts suppressed"
@@ -1362,42 +1069,24 @@ async function checkOpsAlerts() {
     // ==================================================
 
     for (
-      const [
-        key,
-        flight
-      ]
+      const [key, flight]
       of uniqueFlights.entries()
     ) {
-
       let previous =
-        opsState.get(
-          key
-        );
+        opsState.get(key);
 
       if (!previous) {
-
         previous = {
-          cancelledSent:
-            false,
-
-          divertedSent:
-            false,
-
-          majorDelaySent:
-            false,
-
-          severeDelaySent:
-            false,
-
-          timestamp:
-            Date.now()
+          cancelledSent: false,
+          divertedSent: false,
+          majorDelaySent: false,
+          severeDelaySent: false,
+          timestamp: Date.now()
         };
       }
 
       const callsign =
-        flightCallsign(
-          flight
-        );
+        flightCallsign(flight);
 
       const origin =
         airportCode(
@@ -1422,7 +1111,6 @@ async function checkOpsAlerts() {
         flight.cancelled === true &&
         previous.cancelledSent !== true
       ) {
-
         await sendDiscord(
           ALERTS_WEBHOOK,
 
@@ -1430,17 +1118,14 @@ async function checkOpsAlerts() {
           `━━━━━━━━━━━━━━━━━━━━\n` +
           `📍 **Route:** ${origin} → ${destination}\n` +
           `🏷️ **Registration:** ${registration}\n` +
-          `📋 **Status:** ${clean(
-            flight.status
-          )}\n` +
+          `📋 **Status:** ${clean(flight.status)}\n` +
           `━━━━━━━━━━━━━━━━━━━━`
         );
 
-        previous.cancelledSent =
-          true;
+        previous.cancelledSent = true;
 
         console.log(
-          `CANCELLATION ALERT: ${callsign}`
+          `Cancellation detected: ${callsign}`
         );
       }
 
@@ -1452,7 +1137,6 @@ async function checkOpsAlerts() {
         flight.diverted === true &&
         previous.divertedSent !== true
       ) {
-
         await sendDiscord(
           ALERTS_WEBHOOK,
 
@@ -1460,22 +1144,19 @@ async function checkOpsAlerts() {
           `━━━━━━━━━━━━━━━━━━━━\n` +
           `📍 **Route:** ${origin} → ${destination}\n` +
           `🏷️ **Registration:** ${registration}\n` +
-          `📋 **Status:** ${clean(
-            flight.status
-          )}\n` +
+          `📋 **Status:** ${clean(flight.status)}\n` +
           `━━━━━━━━━━━━━━━━━━━━`
         );
 
-        previous.divertedSent =
-          true;
+        previous.divertedSent = true;
 
         console.log(
-          `DIVERSION ALERT: ${callsign}`
+          `Diversion detected: ${callsign}`
         );
       }
 
       // ==================================================
-      // ARRIVAL DELAYS ONLY
+      // INBOUND FLL DELAYS ONLY
       // ==================================================
 
       const inboundFLL =
@@ -1484,34 +1165,27 @@ async function checkOpsAlerts() {
 
       const arrivalDelay =
         Number(
-          flight.arrival_delay ||
-          0
+          flight.arrival_delay || 0
         );
 
-      if (
-        inboundFLL
-      ) {
+      if (inboundFLL) {
 
         // =================================================
-        // 90+ MINUTES
+        // 90+ MINUTE DELAY
         // =================================================
 
         if (
           arrivalDelay >=
-            SEVERE_DELAY_SECONDS &&
-          previous.severeDelaySent !==
-            true
+          SEVERE_DELAY_SECONDS &&
+          previous.severeDelaySent !== true
         ) {
-
           await sendDiscord(
             ALERTS_WEBHOOK,
 
             `🔴 **SEVERE ARRIVAL DELAY — ${callsign}**\n` +
             `━━━━━━━━━━━━━━━━━━━━\n` +
             `📍 **${origin} → FLL**\n` +
-            `⏱️ **Delay:** +${formatMinutes(
-              arrivalDelay
-            )} min\n` +
+            `⏱️ **Delay:** +${formatMinutes(arrivalDelay)} min\n` +
             `🕒 **Estimated Arrival:** ${formatTime(
               flight.estimated_on ||
               flight.estimated_in
@@ -1520,36 +1194,31 @@ async function checkOpsAlerts() {
             `━━━━━━━━━━━━━━━━━━━━`
           );
 
-          previous.severeDelaySent =
-            true;
-
-          previous.majorDelaySent =
-            true;
+          previous.severeDelaySent = true;
+          previous.majorDelaySent = true;
 
           console.log(
-            `90+ MIN DELAY ALERT: ${callsign}`
+            `Severe delay detected: ${callsign}`
           );
 
-        } else if (
+        }
+
+        // =================================================
+        // 45+ MINUTE DELAY
+        // =================================================
+
+        else if (
           arrivalDelay >=
-            MAJOR_DELAY_SECONDS &&
-          previous.majorDelaySent !==
-            true
+          MAJOR_DELAY_SECONDS &&
+          previous.majorDelaySent !== true
         ) {
-
-          // ===============================================
-          // 45+ MINUTES
-          // ===============================================
-
           await sendDiscord(
             ALERTS_WEBHOOK,
 
             `⚠️ **MAJOR ARRIVAL DELAY — ${callsign}**\n` +
             `━━━━━━━━━━━━━━━━━━━━\n` +
             `📍 **${origin} → FLL**\n` +
-            `⏱️ **Delay:** +${formatMinutes(
-              arrivalDelay
-            )} min\n` +
+            `⏱️ **Delay:** +${formatMinutes(arrivalDelay)} min\n` +
             `🕒 **Estimated Arrival:** ${formatTime(
               flight.estimated_on ||
               flight.estimated_in
@@ -1558,11 +1227,10 @@ async function checkOpsAlerts() {
             `━━━━━━━━━━━━━━━━━━━━`
           );
 
-          previous.majorDelaySent =
-            true;
+          previous.majorDelaySent = true;
 
           console.log(
-            `45+ MIN DELAY ALERT: ${callsign}`
+            `Major delay detected: ${callsign}`
           );
         }
       }
@@ -1577,39 +1245,28 @@ async function checkOpsAlerts() {
     }
 
     // ==================================================
-    // OPS CLEANUP
+    // OPS MEMORY CLEANUP
     // ==================================================
 
     const now =
       Date.now();
 
     for (
-      const [
-        key,
-        state
-      ]
+      const [key, state]
       of opsState.entries()
     ) {
-
       if (
         now -
         state.timestamp >
-        24 *
-        60 *
-        60 *
-        1000
+        24 * 60 * 60 * 1000
       ) {
-
-        opsState.delete(
-          key
-        );
+        opsState.delete(key);
       }
     }
 
   } catch (error) {
-
     console.error(
-      "Ops alert error:",
+      "Ops processing error:",
       error.response?.data ||
       error.message
     );
@@ -1621,15 +1278,11 @@ async function checkOpsAlerts() {
 // ======================================================
 
 async function checkWeatherAlerts() {
-
-  if (
-    !WEATHER_WEBHOOK
-  ) {
+  if (!WEATHER_WEBHOOK) {
     return;
   }
 
   try {
-
     const response =
       await axios.get(
         "https://api.weather.gov/alerts/active",
@@ -1644,14 +1297,12 @@ async function checkWeatherAlerts() {
               "JetBlue-KFLL-Discord-Ops/1.0"
           },
 
-          timeout:
-            15000
+          timeout: 15000
         }
       );
 
     const features =
-      response.data?.features ||
-      [];
+      response.data?.features || [];
 
     const importantEvents = [
       "Severe Thunderstorm Warning",
@@ -1668,23 +1319,15 @@ async function checkWeatherAlerts() {
       "Tropical Storm Watch"
     ];
 
-    for (
-      const feature of features
-    ) {
-
+    for (const feature of features) {
       const props =
-        feature.properties ||
-        {};
+        feature.properties || {};
 
       const event =
-        clean(
-          props.event
-        );
+        clean(props.event);
 
       if (
-        !importantEvents.includes(
-          event
-        )
+        !importantEvents.includes(event)
       ) {
         continue;
       }
@@ -1696,9 +1339,7 @@ async function checkWeatherAlerts() {
         );
 
       if (
-        weatherAlertsSeen.has(
-          id
-        )
+        weatherAlertsSeen.has(id)
       ) {
         continue;
       }
@@ -1714,15 +1355,9 @@ async function checkWeatherAlerts() {
         `⛈️ **FLL WEATHER ALERT**\n` +
         `━━━━━━━━━━━━━━━━━━━━\n` +
         `⚠️ **${event}**\n` +
-        `📋 **${clean(
-          props.headline
-        )}**\n` +
-        `🚨 **Severity:** ${clean(
-          props.severity
-        )}\n` +
-        `⏱️ **Expires:** ${formatTime(
-          props.expires
-        )}\n` +
+        `📋 **${clean(props.headline)}**\n` +
+        `🚨 **Severity:** ${clean(props.severity)}\n` +
+        `⏱️ **Expires:** ${formatTime(props.expires)}\n` +
         `━━━━━━━━━━━━━━━━━━━━`
       );
     }
@@ -1731,32 +1366,21 @@ async function checkWeatherAlerts() {
       Date.now();
 
     for (
-      const [
-        id,
-        timestamp
-      ]
+      const [id, timestamp]
       of weatherAlertsSeen.entries()
     ) {
-
       if (
         now -
         timestamp >
-        24 *
-        60 *
-        60 *
-        1000
+        24 * 60 * 60 * 1000
       ) {
-
-        weatherAlertsSeen.delete(
-          id
-        );
+        weatherAlertsSeen.delete(id);
       }
     }
 
   } catch (error) {
-
     console.error(
-      "Weather alert error:",
+      "Weather processing error:",
       error.response?.data ||
       error.message
     );
@@ -1768,18 +1392,13 @@ async function checkWeatherAlerts() {
 // ======================================================
 
 async function checkKFLL() {
-
   try {
-
     const aircraft =
       await getAircraft(
         ARRIVAL_RADIUS_NM
       );
 
-    if (
-      aircraft === null
-    ) {
-
+    if (aircraft === null) {
       console.log(
         "🛬 Arrival poll skipped"
       );
@@ -1788,9 +1407,7 @@ async function checkKFLL() {
     }
 
     const jetblue =
-      aircraft.filter(
-        isJetBlue
-      );
+      aircraft.filter(isJetBlue);
 
     console.log(
       `🔵 JBU aircraft near KFLL: ${jetblue.length}`
@@ -1799,10 +1416,7 @@ async function checkKFLL() {
     const now =
       Date.now();
 
-    for (
-      const plane of jetblue
-    ) {
-
+    for (const plane of jetblue) {
       if (
         plane.lat === undefined ||
         plane.lon === undefined
@@ -1811,14 +1425,10 @@ async function checkKFLL() {
       }
 
       const lat =
-        Number(
-          plane.lat
-        );
+        Number(plane.lat);
 
       const lon =
-        Number(
-          plane.lon
-        );
+        Number(plane.lon);
 
       const distance =
         distanceNM(
@@ -1832,40 +1442,29 @@ async function checkKFLL() {
         plane.alt_baro === "ground"
           ? 0
           : Number(
-              plane.alt_baro ||
-              0
+              plane.alt_baro || 0
             );
 
       const id =
-        `${clean(
-          plane.hex
-        )}-${clean(
-          plane.flight
-        ).toUpperCase()}`;
+        `${clean(plane.hex)}-${clean(plane.flight).toUpperCase()}`;
 
       const previous =
-        aircraftState.get(
-          id
-        );
+        aircraftState.get(id);
 
       console.log(
-        `   ✈️ ${clean(
-          plane.flight
-        ).toUpperCase()} | ` +
+        `   ✈️ ${clean(plane.flight).toUpperCase()} | ` +
         `ALT: ${plane.alt_baro} | ` +
         `DIST: ${distance.toFixed(1)} NM`
       );
 
+      // First observation
       if (!previous) {
-
         aircraftState.set(
           id,
           {
             distance,
             altitude,
-            timestamp:
-              now,
-
+            timestamp: now,
             wasAirborne:
               altitude > 500
           }
@@ -1875,7 +1474,7 @@ async function checkKFLL() {
       }
 
       // ==================================================
-      // ARRIVAL
+      // ARRIVAL DETECTION
       // ==================================================
 
       const wasAirborne =
@@ -1899,14 +1498,11 @@ async function checkKFLL() {
         isAtAirport &&
         isGround
       ) {
-
-        await announceArrival(
-          plane
-        );
+        await announceArrival(plane);
       }
 
       // ==================================================
-      // DEPARTURE
+      // DEPARTURE DETECTION
       // ==================================================
 
       const wasGround =
@@ -1928,14 +1524,12 @@ async function checkKFLL() {
         wasAtAirport &&
         movingAway
       ) {
-
         await announceLastDeparture(
           plane
         );
       }
 
-      // RETURN TO FLL
-
+      // Return-to-FLL check
       await checkReturnToFLL(
         plane,
         distance,
@@ -1947,8 +1541,7 @@ async function checkKFLL() {
         {
           distance,
           altitude,
-          timestamp:
-            now,
+          timestamp: now,
 
           wasAirborne:
             previous.wasAirborne ||
@@ -1958,110 +1551,67 @@ async function checkKFLL() {
     }
 
     // ==================================================
-    // CLEAN AIRCRAFT MEMORY
+    // CLEAN OLD AIRCRAFT STATE
     // ==================================================
 
     for (
-      const [
-        id,
-        state
-      ]
+      const [id, state]
       of aircraftState.entries()
     ) {
-
       if (
         now -
         state.timestamp >
-        15 *
-        60 *
-        1000
+        15 * 60 * 1000
       ) {
-
-        aircraftState.delete(
-          id
-        );
+        aircraftState.delete(id);
       }
     }
 
-    // CLEAN LANDINGS
-
+    // Clean old landing IDs
     for (
-      const [
-        id,
-        timestamp
-      ]
+      const [id, timestamp]
       of announcedLandings.entries()
     ) {
-
       if (
         now -
         timestamp >
-        6 *
-        60 *
-        60 *
-        1000
+        6 * 60 * 60 * 1000
       ) {
-
-        announcedLandings.delete(
-          id
-        );
+        announcedLandings.delete(id);
       }
     }
 
-    // CLEAN DEPARTURES
-
+    // Clean old departure IDs
     for (
-      const [
-        id,
-        timestamp
-      ]
+      const [id, timestamp]
       of announcedDepartures.entries()
     ) {
-
       if (
         now -
         timestamp >
-        6 *
-        60 *
-        60 *
-        1000
+        6 * 60 * 60 * 1000
       ) {
-
-        announcedDepartures.delete(
-          id
-        );
+        announcedDepartures.delete(id);
       }
     }
 
-    // CLEAN TRACKING ALERTS
-
+    // Clean old tracking alerts
     for (
-      const [
-        id,
-        timestamp
-      ]
+      const [id, timestamp]
       of announcedTracking.entries()
     ) {
-
       if (
         now -
         timestamp >
-        6 *
-        60 *
-        60 *
-        1000
+        6 * 60 * 60 * 1000
       ) {
-
-        announcedTracking.delete(
-          id
-        );
+        announcedTracking.delete(id);
       }
     }
 
   } catch (error) {
-
     console.error(
-      "KFLL ADS-B error:",
+      "KFLL processing error:",
       error.response?.data ||
       error.message
     );
@@ -2075,41 +1625,31 @@ async function checkKFLL() {
 const slashCommands = [
 
   new SlashCommandBuilder()
-    .setName(
-      "status"
-    )
+    .setName("status")
     .setDescription(
       "Show KFLL Operations bot status"
     ),
 
   new SlashCommandBuilder()
-    .setName(
-      "arrivals"
-    )
+    .setName("arrivals")
     .setDescription(
       "Run a JetBlue KFLL arrival check"
     ),
 
   new SlashCommandBuilder()
-    .setName(
-      "tracking"
-    )
+    .setName("tracking")
     .setDescription(
       "Run the JetBlue aircraft tracker"
     ),
 
   new SlashCommandBuilder()
-    .setName(
-      "ops"
-    )
+    .setName("ops")
     .setDescription(
       "Check JetBlue operational alerts"
     ),
 
   new SlashCommandBuilder()
-    .setName(
-      "weather"
-    )
+    .setName("weather")
     .setDescription(
       "Check FLL weather alerts"
     )
@@ -2124,13 +1664,10 @@ const slashCommands = [
 // ======================================================
 
 async function registerSlashCommands() {
-
   try {
-
     const rest =
       new REST({
-        version:
-          "10"
+        version: "10"
       }).setToken(
         DISCORD_BOT_TOKEN
       );
@@ -2140,7 +1677,6 @@ async function registerSlashCommands() {
       discordClient.user?.id;
 
     if (!applicationId) {
-
       console.error(
         "Could not determine Discord application ID"
       );
@@ -2153,8 +1689,7 @@ async function registerSlashCommands() {
         applicationId
       ),
       {
-        body:
-          slashCommands
+        body: slashCommands
       }
     );
 
@@ -2163,7 +1698,6 @@ async function registerSlashCommands() {
     );
 
   } catch (error) {
-
     console.error(
       "Slash command registration error:",
       error.message
@@ -2172,7 +1706,7 @@ async function registerSlashCommands() {
 }
 
 // ======================================================
-// COMMAND HANDLER
+// SLASH COMMAND HANDLER
 // ======================================================
 
 discordClient.on(
@@ -2187,15 +1721,11 @@ discordClient.on(
 
     try {
 
-      // ==================================================
       // STATUS
-      // ==================================================
-
       if (
         interaction.commandName ===
         "status"
       ) {
-
         await interaction.reply({
           content:
 
@@ -2210,29 +1740,24 @@ discordClient.on(
             `🔑 **FlightAware:** ${FLIGHTAWARE_API_KEY ? "CONNECTED" : "OFFLINE"}\n` +
             `⚡ **Arrival Poll:** 10 seconds\n` +
             `📡 **Tracking Poll:** 60 seconds\n` +
-            `🔕 **Delay Alerts:** 45 / 90 min\n` +
+            `⚠️ **Major Delay:** 45+ minutes\n` +
+            `🔴 **Severe Delay:** 90+ minutes\n` +
             `🛡️ **Ops Warm-up:** ${opsWarmupComplete ? "COMPLETE" : "INITIALIZING"}\n` +
             `━━━━━━━━━━━━━━━━━━━━`,
 
-          ephemeral:
-            true
+          ephemeral: true
         });
 
         return;
       }
 
-      // ==================================================
       // ARRIVALS
-      // ==================================================
-
       if (
         interaction.commandName ===
         "arrivals"
       ) {
-
         await interaction.deferReply({
-          ephemeral:
-            true
+          ephemeral: true
         });
 
         await checkKFLL();
@@ -2244,18 +1769,13 @@ discordClient.on(
         return;
       }
 
-      // ==================================================
       // TRACKING
-      // ==================================================
-
       if (
         interaction.commandName ===
         "tracking"
       ) {
-
         await interaction.deferReply({
-          ephemeral:
-            true
+          ephemeral: true
         });
 
         await checkAircraftTracking();
@@ -2267,18 +1787,13 @@ discordClient.on(
         return;
       }
 
-      // ==================================================
       // OPS
-      // ==================================================
-
       if (
         interaction.commandName ===
         "ops"
       ) {
-
         await interaction.deferReply({
-          ephemeral:
-            true
+          ephemeral: true
         });
 
         await checkOpsAlerts();
@@ -2290,18 +1805,13 @@ discordClient.on(
         return;
       }
 
-      // ==================================================
       // WEATHER
-      // ==================================================
-
       if (
         interaction.commandName ===
         "weather"
       ) {
-
         await interaction.deferReply({
-          ephemeral:
-            true
+          ephemeral: true
         });
 
         await checkWeatherAlerts();
@@ -2314,9 +1824,8 @@ discordClient.on(
       }
 
     } catch (error) {
-
       console.error(
-        "Slash command error:",
+        "Slash command processing error:",
         error.message
       );
 
@@ -2324,28 +1833,21 @@ discordClient.on(
         interaction.deferred ||
         interaction.replied
       ) {
-
         await interaction
           .editReply(
             "Command failed. Check Render Live Tail."
           )
-          .catch(
-            () => {}
-          );
+          .catch(() => {});
 
       } else {
-
         await interaction
           .reply({
             content:
               "Command failed. Check Render Live Tail.",
 
-            ephemeral:
-              true
+            ephemeral: true
           })
-          .catch(
-            () => {}
-          );
+          .catch(() => {});
       }
     }
   }
@@ -2374,8 +1876,7 @@ discordClient.once(
         }
       ],
 
-      status:
-        "online"
+      status: "online"
     });
 
     await registerSlashCommands();
@@ -2383,71 +1884,30 @@ discordClient.once(
 );
 
 // ======================================================
-// STARTUP
+// STARTUP DISPLAY
 // ======================================================
 
 console.log("");
+console.log("🔵 JETBLUE KFLL OPERATIONS");
+console.log("🛬 ARRIVALS ENABLED");
+console.log("🚨 QUIET OPS ALERTS ENABLED");
+console.log("   🛡️ STARTUP WARM-UP ENABLED");
 
-console.log(
-  "🔵 JETBLUE KFLL OPERATIONS"
-);
+// These are intentionally worded differently for Render
+console.log("   Delay threshold: 45 minutes");
+console.log("   Severe threshold: 90 minutes");
 
-console.log(
-  "🛬 ARRIVALS ENABLED"
-);
+console.log("   CANCELLATIONS ENABLED");
+console.log("   DIVERSIONS ENABLED");
+console.log("   DEPARTURE DELAY SPAM DISABLED");
 
-console.log(
-  "🚨 QUIET OPS ALERTS ENABLED"
-);
+console.log("📡 AIRCRAFT TRACKING ENABLED");
+console.log("⛈️ WEATHER ALERTS ENABLED");
+console.log("🔵 OPERATIONS / LAST DEPARTURE ENABLED");
+console.log("🤖 SLASH COMMANDS ENABLED");
 
-console.log(
-  "   🛡️ STARTUP WARM-UP ENABLED"
-);
-
-// Clean startup logs so Render does not mark these red
-console.log(
-  "   45 MIN DELAY ALERT ENABLED"
-);
-
-console.log(
-  "   90 MIN DELAY ALERT ENABLED"
-);
-
-console.log(
-  "   CANCELLATIONS ENABLED"
-);
-
-console.log(
-  "   DIVERSIONS ENABLED"
-);
-
-console.log(
-  "   DEPARTURE DELAY SPAM DISABLED"
-);
-
-console.log(
-  "📡 AIRCRAFT TRACKING ENABLED"
-);
-
-console.log(
-  "⛈️ WEATHER ALERTS ENABLED"
-);
-
-console.log(
-  "🔵 OPERATIONS / LAST DEPARTURE ENABLED"
-);
-
-console.log(
-  "🤖 SLASH COMMANDS ENABLED"
-);
-
-console.log(
-  "⚡ ARRIVAL POLLING: 10 SECONDS"
-);
-
-console.log(
-  "📡 TRACKING POLLING: 60 SECONDS"
-);
+console.log("⚡ ARRIVAL POLLING: 10 SECONDS");
+console.log("📡 TRACKING POLLING: 60 SECONDS");
 
 console.log(
   "📢 Arrivals:",
@@ -2485,17 +1945,11 @@ console.log("");
 // LOGIN
 // ======================================================
 
-if (
-  DISCORD_BOT_TOKEN
-) {
-
+if (DISCORD_BOT_TOKEN) {
   discordClient
-    .login(
-      DISCORD_BOT_TOKEN
-    )
+    .login(DISCORD_BOT_TOKEN)
     .catch(
       error => {
-
         console.error(
           "Discord login failed:",
           error.message
@@ -2504,17 +1958,16 @@ if (
     );
 
 } else {
-
   console.error(
     "DISCORD_BOT_TOKEN is missing"
   );
 }
 
 // ======================================================
-// START LOOPS
+// START ALL MONITORS
 // ======================================================
 
-// ARRIVALS / DEPARTURES
+// Arrival / departure detector
 checkKFLL();
 
 setInterval(
@@ -2522,7 +1975,7 @@ setInterval(
   ARRIVAL_POLL_INTERVAL
 );
 
-// LONG-RANGE TRACKING
+// Long-range tracker
 checkAircraftTracking();
 
 setInterval(
@@ -2530,7 +1983,7 @@ setInterval(
   TRACKING_POLL_INTERVAL
 );
 
-// OPS ALERTS
+// Ops alerts
 checkOpsAlerts();
 
 setInterval(
@@ -2538,7 +1991,7 @@ setInterval(
   OPS_POLL_INTERVAL
 );
 
-// WEATHER
+// Weather
 checkWeatherAlerts();
 
 setInterval(
