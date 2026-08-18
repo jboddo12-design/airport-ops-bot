@@ -2404,7 +2404,10 @@ function buildRouteStatus(
   return "🟢 NORMAL";
 }
 
-async function buildRouteBoard() {
+async function buildRouteBoard(
+  remainingOnly = false,
+  cutoffHour = null
+) {
 
   const data =
     await getRouteBoardFlights();
@@ -2425,26 +2428,6 @@ async function buildRouteBoard() {
   // ==================================================
   // TODAY IN EASTERN TIME
   // ==================================================
-
-  const today =
-    new Intl.DateTimeFormat(
-      "en-CA",
-      {
-        timeZone:
-          "America/New_York",
-
-        year:
-          "numeric",
-
-        month:
-          "2-digit",
-
-        day:
-          "2-digit"
-      }
-    ).format(
-      new Date()
-    );
 
   function easternDateString(
     timestamp
@@ -2487,8 +2470,56 @@ async function buildRouteBoard() {
     );
   }
 
+  function easternHour(
+    timestamp
+  ) {
+
+    if (!timestamp) {
+      return null;
+    }
+
+    const date =
+      new Date(
+        timestamp
+      );
+
+    if (
+      Number.isNaN(
+        date.getTime()
+      )
+    ) {
+      return null;
+    }
+
+    const value =
+      new Intl.DateTimeFormat(
+        "en-US",
+        {
+          timeZone:
+            "America/New_York",
+
+          hour:
+            "2-digit",
+
+          hour12:
+            false
+        }
+      ).format(
+        date
+      );
+
+    return Number(
+      value
+    );
+  }
+
+  const today =
+    easternDateString(
+      new Date()
+    );
+
   // ==================================================
-  // UNIQUE FLIGHTS ONLY
+  // UNIQUE TODAY FLIGHTS
   // ==================================================
 
   const uniqueFlights =
@@ -2523,45 +2554,117 @@ async function buildRouteBoard() {
       continue;
     }
 
-    // Use departure time for departures.
-    // Use arrival time for arrivals.
-
-    const relevantTime =
+    const scheduledTime =
       isDeparture
         ? (
             flight.scheduled_out ||
-            flight.scheduled_off ||
-            flight.estimated_out ||
-            flight.estimated_off ||
+            flight.scheduled_off
+          )
+        : (
+            flight.scheduled_in ||
+            flight.scheduled_on
+          );
+
+    const actualTime =
+      isDeparture
+        ? (
             flight.actual_out ||
             flight.actual_off
           )
         : (
-            flight.scheduled_in ||
-            flight.scheduled_on ||
-            flight.estimated_in ||
-            flight.estimated_on ||
             flight.actual_in ||
             flight.actual_on
           );
 
-    const flightDate =
-      easternDateString(
-        relevantTime
-      );
+    const estimatedTime =
+      isDeparture
+        ? (
+            flight.estimated_out ||
+            flight.estimated_off
+          )
+        : (
+            flight.estimated_in ||
+            flight.estimated_on
+          );
+
+    const relevantTime =
+      scheduledTime ||
+      estimatedTime ||
+      actualTime;
 
     if (
-      flightDate !==
-      today
+      easternDateString(
+        relevantTime
+      ) !== today
     ) {
       continue;
+    }
+
+    // ==================================================
+    // REMAINING-FLIGHT FILTER
+    // ==================================================
+
+    if (
+      remainingOnly &&
+      cutoffHour !== null
+    ) {
+
+      const completed =
+        Boolean(
+          actualTime
+        );
+
+      // If already completed, don't show it
+      if (completed) {
+        continue;
+      }
+
+      const effectiveTime =
+        estimatedTime ||
+        scheduledTime;
+
+      const effectiveHour =
+        easternHour(
+          effectiveTime
+        );
+
+      /*
+        Keep a flight if:
+        - estimated/scheduled time is cutoff hour or later
+        OR
+        - its scheduled time has already passed but it
+          has NOT actually completed yet
+      */
+
+      const scheduledHour =
+        easternHour(
+          scheduledTime
+        );
+
+      const overdueButStillOpen =
+        scheduledHour !== null &&
+        scheduledHour <
+          cutoffHour &&
+        !completed;
+
+      const upcoming =
+        effectiveHour !== null &&
+        effectiveHour >=
+          cutoffHour;
+
+      if (
+        !overdueButStillOpen &&
+        !upcoming
+      ) {
+        continue;
+      }
     }
 
     const key =
       flight.fa_flight_id ||
       `${flightCallsign(
         flight
-      )}-${origin}-${destination}-${relevantTime}`;
+      )}-${origin}-${destination}-${scheduledTime || relevantTime}`;
 
     if (
       !uniqueFlights.has(
@@ -2576,15 +2679,12 @@ async function buildRouteBoard() {
 
     } else {
 
-      const existing =
-        uniqueFlights.get(
-          key
-        );
-
       uniqueFlights.set(
         key,
         {
-          ...existing,
+          ...uniqueFlights.get(
+            key
+          ),
           ...flight
         }
       );
@@ -2683,7 +2783,9 @@ async function buildRouteBoard() {
       route.dep++;
       departures++;
 
-    } else {
+    } else if (
+      isArrival
+    ) {
 
       route.arr++;
       arrivals++;
@@ -2780,16 +2882,22 @@ async function buildRouteBoard() {
           b.dep +
           b.arr;
 
-        return (
-          bTotal -
+        if (
+          bTotal !==
           aTotal
+        ) {
+
+          return (
+            bTotal -
+            aTotal
+          );
+        }
+
+        return a.code.localeCompare(
+          b.code
         );
       }
     );
-
-  // ==================================================
-  // ROUTE LINES
-  // ==================================================
 
   const routeLines =
     sortedRoutes.map(
@@ -2829,10 +2937,40 @@ async function buildRouteBoard() {
     departures +
     arrivals;
 
+  let boardLabel =
+    "FULL DAY";
+
+  let summaryLabel =
+    "TOTAL FLIGHTS";
+
+  if (
+    remainingOnly &&
+    cutoffHour === 13
+  ) {
+
+    boardLabel =
+      "1:00 PM • REMAINING TODAY";
+
+    summaryLabel =
+      "FLIGHTS REMAINING";
+  }
+
+  if (
+    remainingOnly &&
+    cutoffHour === 18
+  ) {
+
+    boardLabel =
+      "6:00 PM • REMAINING TONIGHT";
+
+    summaryLabel =
+      "FLIGHTS REMAINING";
+  }
+
   return (
     `🗺️ **JETBLUE • FLL FLIGHT BOARD**\n` +
     `━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
-    `📅 **${formatBoardDate()}**\n\n` +
+    `📅 **${formatBoardDate()} • ${boardLabel}**\n\n` +
 
     "```text\n" +
     "ROUTE  DEP   ARR   STATUS\n\n" +
@@ -2847,7 +2985,7 @@ async function buildRouteBoard() {
     `✈️ **${sortedRoutes.length} ROUTES**\n` +
     `🛫 **${departures} DEPARTURES**\n` +
     `🛬 **${arrivals} ARRIVALS**\n` +
-    `🔵 **${totalFlights} TOTAL FLIGHTS**\n\n` +
+    `🔵 **${totalFlights} ${summaryLabel}**\n\n` +
 
     `⚠️ **${delayed} DELAYED**\n` +
     `❌ **${cancelled} CANCELLED**\n` +
@@ -2857,7 +2995,10 @@ async function buildRouteBoard() {
   );
 }
 
-async function sendRouteBoardUpdate() {
+async function sendRouteBoardUpdate(
+  remainingOnly = false,
+  cutoffHour = null
+) {
 
   if (
     !ROUTE_BOARD_WEBHOOK
@@ -2866,7 +3007,10 @@ async function sendRouteBoardUpdate() {
   }
 
   const board =
-    await buildRouteBoard();
+    await buildRouteBoard(
+      remainingOnly,
+      cutoffHour
+    );
 
   if (!board) {
 
@@ -2931,11 +3075,59 @@ async function checkScheduledRouteBoardUpdate() {
     Date.now()
   );
 
-  console.log(
-    `🗺️ Sending scheduled FLL route board (${hour}:00 ET)`
-  );
+  // ==================================================
+  // 6 AM = FULL DAY
+  // ==================================================
 
-  await sendRouteBoardUpdate();
+  if (
+    hour === 6
+  ) {
+
+    console.log(
+      "🗺️ Sending 6 AM full-day FLL route board"
+    );
+
+    await sendRouteBoardUpdate(
+      false,
+      null
+    );
+  }
+
+  // ==================================================
+  // 1 PM = REMAINING TODAY
+  // ==================================================
+
+  if (
+    hour === 13
+  ) {
+
+    console.log(
+      "🗺️ Sending 1 PM remaining FLL route board"
+    );
+
+    await sendRouteBoardUpdate(
+      true,
+      13
+    );
+  }
+
+  // ==================================================
+  // 6 PM = REMAINING TONIGHT
+  // ==================================================
+
+  if (
+    hour === 18
+  ) {
+
+    console.log(
+      "🗺️ Sending 6 PM remaining FLL route board"
+    );
+
+    await sendRouteBoardUpdate(
+      true,
+      18
+    );
+  }
 
   const cutoff =
     Date.now() -
