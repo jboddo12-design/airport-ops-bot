@@ -70,7 +70,7 @@ const announcedTracking = new Map();
 const opsState = new Map();
 
 const weatherAlertsSeen = new Map();
-
+const scheduledWeatherUpdatesSent = new Map();
 const recentlyDeparted = new Map();
 
 let opsWarmupComplete = false;
@@ -1680,7 +1680,591 @@ async function checkOpsAlerts() {
 // ======================================================
 // WEATHER
 // ======================================================
+// ======================================================
+// FLL RAMP WEATHER
+// ======================================================
 
+function celsiusToFahrenheit(value) {
+
+  const number =
+    Number(value);
+
+  if (!Number.isFinite(number)) {
+    return null;
+  }
+
+  return (
+    number *
+    9 /
+    5 +
+    32
+  );
+}
+
+function metersPerSecondToMph(value) {
+
+  const number =
+    Number(value);
+
+  if (!Number.isFinite(number)) {
+    return null;
+  }
+
+  return (
+    number *
+    2.2369362921
+  );
+}
+
+function compassDirection(degrees) {
+
+  const number =
+    Number(degrees);
+
+  if (!Number.isFinite(number)) {
+    return "N/A";
+  }
+
+  const directions = [
+    "N",
+    "NNE",
+    "NE",
+    "ENE",
+    "E",
+    "ESE",
+    "SE",
+    "SSE",
+    "S",
+    "SSW",
+    "SW",
+    "WSW",
+    "W",
+    "WNW",
+    "NW",
+    "NNW"
+  ];
+
+  const index =
+    Math.round(
+      (
+        (
+          number %
+          360
+        ) /
+        22.5
+      )
+    ) %
+    16;
+
+  return directions[index];
+}
+
+function parseWindMph(text) {
+
+  if (!text) {
+    return null;
+  }
+
+  const matches =
+    String(text).match(
+      /\d+/g
+    );
+
+  if (
+    !matches ||
+    matches.length === 0
+  ) {
+
+    return null;
+  }
+
+  const numbers =
+    matches
+      .map(Number)
+      .filter(
+        Number.isFinite
+      );
+
+  if (
+    numbers.length === 0
+  ) {
+
+    return null;
+  }
+
+  return Math.max(
+    ...numbers
+  );
+}
+
+function weatherRiskLabel(
+  condition
+) {
+
+  return condition
+    ? "HIGH"
+    : "LOW";
+}
+
+async function getRampWeather() {
+
+  try {
+
+    const headers = {
+      "User-Agent":
+        "JetBlue-KFLL-Discord-Ops/1.0",
+
+      "Accept":
+        "application/geo+json"
+    };
+
+    const observationResponse =
+      await axios.get(
+        "https://api.weather.gov/stations/KFLL/observations/latest",
+        {
+          headers,
+
+          timeout:
+            15000
+        }
+      );
+
+    const observation =
+      observationResponse.data
+        ?.properties ||
+      {};
+
+    const pointResponse =
+      await axios.get(
+        `https://api.weather.gov/points/${KFLL_LAT},${KFLL_LON}`,
+        {
+          headers,
+
+          timeout:
+            15000
+        }
+      );
+
+    const hourlyUrl =
+      pointResponse.data
+        ?.properties
+        ?.forecastHourly;
+
+    let forecast = {};
+
+    if (hourlyUrl) {
+
+      const forecastResponse =
+        await axios.get(
+          hourlyUrl,
+          {
+            headers,
+
+            timeout:
+              15000
+          }
+        );
+
+      forecast =
+        forecastResponse.data
+          ?.properties
+          ?.periods
+          ?.[0] ||
+        {};
+    }
+
+    const tempF =
+      celsiusToFahrenheit(
+        observation.temperature
+          ?.value
+      );
+
+    const heatIndexF =
+      celsiusToFahrenheit(
+        observation.heatIndex
+          ?.value
+      );
+
+    const humidity =
+      Number(
+        observation.relativeHumidity
+          ?.value
+      );
+
+    const windMph =
+      metersPerSecondToMph(
+        observation.windSpeed
+          ?.value
+      );
+
+    const gustMph =
+      metersPerSecondToMph(
+        observation.windGust
+          ?.value
+      );
+
+    const windDegrees =
+      Number(
+        observation.windDirection
+          ?.value
+      );
+
+    const rainChance =
+      Number(
+        forecast.probabilityOfPrecipitation
+          ?.value
+      );
+
+    const conditions =
+      clean(
+        observation.textDescription !==
+        undefined &&
+        observation.textDescription !==
+        null &&
+        observation.textDescription !==
+        ""
+          ? observation.textDescription
+          : forecast.shortForecast
+      );
+
+    const forecastText =
+      clean(
+        forecast.shortForecast
+      ).toLowerCase();
+
+    const thunderstormRisk =
+      forecastText.includes(
+        "thunder"
+      );
+
+    const heavyRainRisk =
+      forecastText.includes(
+        "heavy rain"
+      ) ||
+      forecastText.includes(
+        "heavy showers"
+      );
+
+    const forecastWind =
+      parseWindMph(
+        forecast.windSpeed
+      );
+
+    const effectiveWind =
+      Math.max(
+        windMph || 0,
+        gustMph || 0,
+        forecastWind || 0
+      );
+
+    const highWindRisk =
+      effectiveWind >= 30;
+
+    let rampStatus =
+      "🟢 RAMP CONDITIONS: NORMAL";
+
+    if (
+      thunderstormRisk ||
+      heavyRainRisk ||
+      effectiveWind >= 35
+    ) {
+
+      rampStatus =
+        "🔴 RAMP CONDITIONS: SEVERE";
+
+    } else if (
+      rainChance >= 50 ||
+      effectiveWind >= 25 ||
+      (
+        heatIndexF !== null &&
+        heatIndexF >= 100
+      )
+    ) {
+
+      rampStatus =
+        "🟡 RAMP CONDITIONS: CAUTION";
+    }
+
+    return {
+      conditions,
+
+      temperature:
+        tempF === null
+          ? (
+              Number.isFinite(
+                Number(
+                  forecast.temperature
+                )
+              )
+                ? `${Math.round(
+                    Number(
+                      forecast.temperature
+                    )
+                  )}°F`
+                : "N/A"
+            )
+          : `${Math.round(tempF)}°F`,
+
+      feelsLike:
+        heatIndexF === null
+          ? (
+              tempF === null
+                ? "N/A"
+                : `${Math.round(tempF)}°F`
+            )
+          : `${Math.round(heatIndexF)}°F`,
+
+      humidity:
+        Number.isFinite(humidity)
+          ? `${Math.round(humidity)}%`
+          : "N/A",
+
+      wind:
+        windMph === null
+          ? clean(
+              forecast.windSpeed
+            )
+          : `${Math.round(windMph)} MPH`,
+
+      gusts:
+        gustMph === null
+          ? "None / N/A"
+          : `${Math.round(gustMph)} MPH`,
+
+      windDirection:
+        Number.isFinite(
+          windDegrees
+        )
+          ? compassDirection(
+              windDegrees
+            )
+          : clean(
+              forecast.windDirection
+            ),
+
+      rainChance:
+        Number.isFinite(
+          rainChance
+        )
+          ? `${Math.round(rainChance)}%`
+          : "N/A",
+
+      lightningRisk:
+        weatherRiskLabel(
+          thunderstormRisk
+        ),
+
+      heavyRainRisk:
+        weatherRiskLabel(
+          heavyRainRisk
+        ),
+
+      highWindRisk:
+        weatherRiskLabel(
+          highWindRisk
+        ),
+
+      rampStatus
+    };
+
+  } catch (error) {
+
+    console.error(
+      "Ramp weather error:",
+      error.response?.data ||
+      error.message
+    );
+
+    return null;
+  }
+}
+
+function buildRampWeatherMessage(
+  weather
+) {
+
+  return (
+    `🔵 **FLL RAMP CONDITIONS**\n` +
+    `━━━━━━━━━━━━━━━━━━━━━━\n\n` +
+
+    `🌤️ **${weather.conditions.toUpperCase()}**\n` +
+    `🌡️ **${weather.temperature}  •  FEELS ${weather.feelsLike}**\n` +
+    `💧 **HUMIDITY ${weather.humidity}**\n\n` +
+
+    `💨 **WIND**\n` +
+    `     ${weather.windDirection} • ${weather.wind}\n` +
+    `     Gusts • ${weather.gusts}\n\n` +
+
+    `🌧️ **PRECIPITATION**\n` +
+    `     Rain Chance • ${weather.rainChance}\n\n` +
+
+    `⚡ **RAMP RISK**\n` +
+    `     Lightning • ${weather.lightningRisk}\n` +
+    `     Heavy Rain • ${weather.heavyRainRisk}\n` +
+    `     High Winds • ${weather.highWindRisk}\n\n` +
+
+    `━━━━━━━━━━━━━━━━━━━━━━\n` +
+    `${weather.rampStatus}\n` +
+    `📍 **KFLL • FORT LAUDERDALE**`
+  );
+}
+
+async function sendRampWeatherUpdate() {
+
+  if (!WEATHER_WEBHOOK) {
+    return;
+  }
+
+  const weather =
+    await getRampWeather();
+
+  if (!weather) {
+
+    console.log(
+      "🌤️ Ramp weather update skipped - weather unavailable"
+    );
+
+    return;
+  }
+
+  await sendDiscord(
+    WEATHER_WEBHOOK,
+    buildRampWeatherMessage(
+      weather
+    )
+  );
+}
+
+function getEasternDateParts() {
+
+  const parts =
+    new Intl.DateTimeFormat(
+      "en-US",
+      {
+        timeZone:
+          "America/New_York",
+
+        year:
+          "numeric",
+
+        month:
+          "2-digit",
+
+        day:
+          "2-digit",
+
+        hour:
+          "2-digit",
+
+        minute:
+          "2-digit",
+
+        hour12:
+          false
+      }
+    ).formatToParts(
+      new Date()
+    );
+
+  const values = {};
+
+  for (
+    const part of parts
+  ) {
+
+    if (
+      part.type !==
+      "literal"
+    ) {
+
+      values[
+        part.type
+      ] =
+        part.value;
+    }
+  }
+
+  return values;
+}
+
+async function checkScheduledWeatherUpdate() {
+
+  const now =
+    getEasternDateParts();
+
+  const hour =
+    Number(
+      now.hour
+    );
+
+  const minute =
+    Number(
+      now.minute
+    );
+
+  if (
+    minute !== 0 ||
+    ![
+      6,
+      13,
+      18
+    ].includes(
+      hour
+    )
+  ) {
+
+    return;
+  }
+
+  const scheduleId =
+    `${now.year}-${now.month}-${now.day}-${hour}`;
+
+  if (
+    scheduledWeatherUpdatesSent.has(
+      scheduleId
+    )
+  ) {
+
+    return;
+  }
+
+  scheduledWeatherUpdatesSent.set(
+    scheduleId,
+    Date.now()
+  );
+
+  console.log(
+    `🌤️ Sending scheduled FLL ramp weather update (${hour}:00 ET)`
+  );
+
+  await sendRampWeatherUpdate();
+
+  const cutoff =
+    Date.now() -
+    48 *
+    60 *
+    60 *
+    1000;
+
+  for (
+    const [
+      id,
+      timestamp
+    ]
+    of scheduledWeatherUpdatesSent.entries()
+  ) {
+
+    if (
+      timestamp <
+      cutoff
+    ) {
+
+      scheduledWeatherUpdatesSent.delete(
+        id
+      );
+    }
+  }
+}
 async function checkWeatherAlerts() {
 
   if (
@@ -2484,15 +3068,26 @@ discordClient.on(
             true
         });
 
-        await checkWeatherAlerts();
+        const weather =
+          await getRampWeather();
+
+        if (!weather) {
+
+          await interaction.editReply(
+            "❌ Unable to retrieve FLL ramp weather right now."
+          );
+
+          return;
+        }
 
         await interaction.editReply(
-          "⛈️ FLL weather alert check completed."
+          buildRampWeatherMessage(
+            weather
+          )
         );
 
         return;
       }
-
       // ==================================================
       // /help
       // ==================================================
@@ -2813,4 +3408,19 @@ checkWeatherAlerts();
 setInterval(
   checkWeatherAlerts,
   WEATHER_POLL_INTERVAL
+);
+// ======================================================
+// SCHEDULED RAMP WEATHER
+// ======================================================
+
+// Posts automatically at:
+// 6:00 AM ET
+// 1:00 PM ET
+// 6:00 PM ET
+
+checkScheduledWeatherUpdate();
+
+setInterval(
+  checkScheduledWeatherUpdate,
+  60000
 );
