@@ -61,7 +61,7 @@ const SEVERE_DELAY_SECONDS = 90 * 60;
 // Route board can fetch up to 10 AeroAPI pages.
 // At up to 15 records/page this provides room for
 // approximately 150 records.
-const ROUTE_BOARD_MAX_PAGES = 10;
+const ROUTE_BOARD_MAX_PAGES = 20;
 
 // ======================================================
 // MEMORY
@@ -2423,7 +2423,72 @@ async function buildRouteBoard() {
   );
 
   // ==================================================
-  // DEDUPLICATE FLIGHTS
+  // TODAY IN EASTERN TIME
+  // ==================================================
+
+  const today =
+    new Intl.DateTimeFormat(
+      "en-CA",
+      {
+        timeZone:
+          "America/New_York",
+
+        year:
+          "numeric",
+
+        month:
+          "2-digit",
+
+        day:
+          "2-digit"
+      }
+    ).format(
+      new Date()
+    );
+
+  function easternDateString(
+    timestamp
+  ) {
+
+    if (!timestamp) {
+      return null;
+    }
+
+    const date =
+      new Date(
+        timestamp
+      );
+
+    if (
+      Number.isNaN(
+        date.getTime()
+      )
+    ) {
+      return null;
+    }
+
+    return new Intl.DateTimeFormat(
+      "en-CA",
+      {
+        timeZone:
+          "America/New_York",
+
+        year:
+          "numeric",
+
+        month:
+          "2-digit",
+
+        day:
+          "2-digit"
+      }
+    ).format(
+      date
+    );
+  }
+
+  // ==================================================
+  // UNIQUE FLIGHTS ONLY
   // ==================================================
 
   const uniqueFlights =
@@ -2431,48 +2496,6 @@ async function buildRouteBoard() {
 
   for (
     const flight of allFlights
-  ) {
-
-    const key =
-      getRouteFlightKey(
-        flight
-      );
-
-    uniqueFlights.set(
-      key,
-      mergeRouteFlight(
-        uniqueFlights.get(
-          key
-        ),
-        flight
-      )
-    );
-  }
-
-  // ==================================================
-  // GROUP BY FLL ROUTE
-  // ==================================================
-
-  const routes =
-    new Map();
-
-  let departures =
-    0;
-
-  let arrivals =
-    0;
-
-  let delayed =
-    0;
-
-  let cancelled =
-    0;
-
-  let diverted =
-    0;
-
-  for (
-    const flight of uniqueFlights.values()
   ) {
 
     const origin =
@@ -2499,6 +2522,110 @@ async function buildRouteBoard() {
     ) {
       continue;
     }
+
+    // Use departure time for departures.
+    // Use arrival time for arrivals.
+
+    const relevantTime =
+      isDeparture
+        ? (
+            flight.scheduled_out ||
+            flight.scheduled_off ||
+            flight.estimated_out ||
+            flight.estimated_off ||
+            flight.actual_out ||
+            flight.actual_off
+          )
+        : (
+            flight.scheduled_in ||
+            flight.scheduled_on ||
+            flight.estimated_in ||
+            flight.estimated_on ||
+            flight.actual_in ||
+            flight.actual_on
+          );
+
+    const flightDate =
+      easternDateString(
+        relevantTime
+      );
+
+    if (
+      flightDate !==
+      today
+    ) {
+      continue;
+    }
+
+    const key =
+      flight.fa_flight_id ||
+      `${flightCallsign(
+        flight
+      )}-${origin}-${destination}-${relevantTime}`;
+
+    if (
+      !uniqueFlights.has(
+        key
+      )
+    ) {
+
+      uniqueFlights.set(
+        key,
+        flight
+      );
+
+    } else {
+
+      const existing =
+        uniqueFlights.get(
+          key
+        );
+
+      uniqueFlights.set(
+        key,
+        {
+          ...existing,
+          ...flight
+        }
+      );
+    }
+  }
+
+  // ==================================================
+  // ROUTE TOTALS
+  // ==================================================
+
+  const routes =
+    new Map();
+
+  let departures = 0;
+  let arrivals = 0;
+
+  let delayed = 0;
+  let cancelled = 0;
+  let diverted = 0;
+
+  for (
+    const flight of uniqueFlights.values()
+  ) {
+
+    const origin =
+      airportCode(
+        flight.origin
+      );
+
+    const destination =
+      airportCode(
+        flight.destination
+      );
+
+    const isDeparture =
+      origin === "FLL" ||
+      origin === "KFLL";
+
+    const isArrival =
+      destination === "FLL" ||
+      destination === "KFLL";
 
     const routeCode =
       isDeparture
@@ -2556,9 +2683,7 @@ async function buildRouteBoard() {
       route.dep++;
       departures++;
 
-    } else if (
-      isArrival
-    ) {
+    } else {
 
       route.arr++;
       arrivals++;
@@ -2575,10 +2700,14 @@ async function buildRouteBoard() {
     const delaySeconds =
       Number(
         isDeparture
-          ? flight.departure_delay ||
-            0
-          : flight.arrival_delay ||
-            0
+          ? (
+              flight.departure_delay ||
+              0
+            )
+          : (
+              flight.arrival_delay ||
+              0
+            )
       );
 
     const isDelayed =
@@ -2617,11 +2746,6 @@ async function buildRouteBoard() {
 
   // ==================================================
   // SORT ROUTES
-  //
-  // 1. Disrupted
-  // 2. Delayed
-  // 3. Normal
-  // 4. Busiest route first
   // ==================================================
 
   const sortedRoutes =
@@ -2656,25 +2780,15 @@ async function buildRouteBoard() {
           b.dep +
           b.arr;
 
-        if (
-          bTotal !==
+        return (
+          bTotal -
           aTotal
-        ) {
-
-          return (
-            bTotal -
-            aTotal
-          );
-        }
-
-        return a.code.localeCompare(
-          b.code
         );
       }
     );
 
   // ==================================================
-  // BUILD ROUTE LINES
+  // ROUTE LINES
   // ==================================================
 
   const routeLines =
@@ -2715,7 +2829,7 @@ async function buildRouteBoard() {
     departures +
     arrivals;
 
-  const message =
+  return (
     `🗺️ **JETBLUE • FLL FLIGHT BOARD**\n` +
     `━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
     `📅 **${formatBoardDate()}**\n\n` +
@@ -2739,9 +2853,8 @@ async function buildRouteBoard() {
     `❌ **${cancelled} CANCELLED**\n` +
     `↪️ **${diverted} DIVERTED**\n\n` +
 
-    `📍 **KFLL • JETBLUE OPERATIONS**`;
-
-  return message;
+    `📍 **KFLL • JETBLUE OPERATIONS**`
+  );
 }
 
 async function sendRouteBoardUpdate() {
