@@ -28,9 +28,6 @@ const TRACKING_WEBHOOK =
 const WEATHER_WEBHOOK =
   process.env.DISCORD_WEATHER_WEBHOOK;
 
-const ROUTE_BOARD_WEBHOOK =
-  process.env.DISCORD_ROUTE_BOARD_WEBHOOK;
-
 const OPERATIONS_WEBHOOK =
   process.env.DISCORD_OPERATIONS_WEBHOOK ||
   process.env.DISCORD_FLIGHT_STATUS_WEBHOOK;
@@ -58,11 +55,6 @@ const WEATHER_POLL_INTERVAL = 300000;
 const MAJOR_DELAY_SECONDS = 45 * 60;
 const SEVERE_DELAY_SECONDS = 90 * 60;
 
-// Route board can fetch up to 10 AeroAPI pages.
-// At up to 15 records/page this provides room for
-// approximately 150 records.
-const ROUTE_BOARD_MAX_PAGES = 20;
-
 // ======================================================
 // MEMORY
 // ======================================================
@@ -79,7 +71,6 @@ const opsState = new Map();
 
 const weatherAlertsSeen = new Map();
 const scheduledWeatherUpdatesSent = new Map();
-const scheduledRouteBoardUpdatesSent = new Map();
 
 const recentlyDeparted = new Map();
 
@@ -106,6 +97,7 @@ function clean(value) {
     value === undefined ||
     value === ""
   ) {
+
     return "N/A";
   }
 
@@ -221,6 +213,7 @@ function formatTime(timestamp) {
       date.getTime()
     )
   ) {
+
     return "N/A";
   }
 
@@ -253,6 +246,7 @@ function formatMinutes(seconds) {
   if (
     !Number.isFinite(value)
   ) {
+
     return "N/A";
   }
 
@@ -272,6 +266,7 @@ function getGroundSpeed(plane) {
     !Number.isFinite(gs) ||
     gs < 30
   ) {
+
     return null;
   }
 
@@ -309,10 +304,12 @@ function normalizeFlightInput(input) {
   if (
     value === "N/A"
   ) {
+
     return null;
   }
 
   if (/^\d+$/.test(value)) {
+
     value =
       `JBU${value}`;
   }
@@ -320,88 +317,12 @@ function normalizeFlightInput(input) {
   if (
     value.startsWith("B6")
   ) {
+
     value =
       `JBU${value.substring(2)}`;
   }
 
   return value;
-}
-
-// ======================================================
-// EASTERN TIME HELPERS
-// ======================================================
-
-function getEasternDateParts() {
-
-  const parts =
-    new Intl.DateTimeFormat(
-      "en-US",
-      {
-        timeZone:
-          "America/New_York",
-
-        year:
-          "numeric",
-
-        month:
-          "2-digit",
-
-        day:
-          "2-digit",
-
-        hour:
-          "2-digit",
-
-        minute:
-          "2-digit",
-
-        hour12:
-          false
-      }
-    ).formatToParts(
-      new Date()
-    );
-
-  const values = {};
-
-  for (
-    const part of parts
-  ) {
-
-    if (
-      part.type !==
-      "literal"
-    ) {
-      values[
-        part.type
-      ] =
-        part.value;
-    }
-  }
-
-  return values;
-}
-
-function formatBoardDate() {
-
-  return new Intl.DateTimeFormat(
-    "en-US",
-    {
-      timeZone:
-        "America/New_York",
-
-      weekday:
-        "long",
-
-      month:
-        "long",
-
-      day:
-        "numeric"
-    }
-  ).format(
-    new Date()
-  );
 }
 
 // ======================================================
@@ -483,7 +404,7 @@ async function flightAwareGet(
           params,
 
           timeout:
-            20000
+            15000
         }
       );
 
@@ -514,6 +435,7 @@ async function getFlightDetails(
     !callsign ||
     callsign === "N/A"
   ) {
+
     return null;
   }
 
@@ -532,6 +454,7 @@ async function getFlightDetails(
     !Array.isArray(flights) ||
     flights.length === 0
   ) {
+
     return null;
   }
 
@@ -602,6 +525,7 @@ async function lookupFlight(
     !Array.isArray(flights) ||
     flights.length === 0
   ) {
+
     return null;
   }
 
@@ -648,7 +572,6 @@ async function lookupFlight(
 
 // ======================================================
 // KFLL FLIGHTAWARE FLIGHTS
-// Used by existing Ops alerts
 // ======================================================
 
 async function getKFLLFlights() {
@@ -741,6 +664,7 @@ async function announceArrival(
       landingId
     )
   ) {
+
     return;
   }
 
@@ -772,6 +696,7 @@ async function announceArrival(
     if (
       foundOrigin !== "N/A"
     ) {
+
       origin =
         foundOrigin;
     }
@@ -851,6 +776,7 @@ async function announceLastDeparture(
       departureId
     )
   ) {
+
     return;
   }
 
@@ -988,6 +914,7 @@ async function checkReturnToFLL(
       alertId
     )
   ) {
+
     return;
   }
 
@@ -1062,6 +989,7 @@ async function checkAircraftTracking() {
         plane.lat === undefined ||
         plane.lon === undefined
       ) {
+
         continue;
       }
 
@@ -1095,6 +1023,7 @@ async function checkAircraftTracking() {
         altitude <= 500 ||
         distance <= 1.5
       ) {
+
         continue;
       }
 
@@ -1187,6 +1116,7 @@ async function checkAircraftTracking() {
               destination !== "FLL" &&
               destination !== "KFLL"
             ) {
+
               continue;
             }
 
@@ -1256,6 +1186,7 @@ async function checkAircraftTracking() {
               destination !== "FLL" &&
               destination !== "KFLL"
             ) {
+
               continue;
             }
 
@@ -1325,6 +1256,7 @@ async function checkAircraftTracking() {
               destination !== "FLL" &&
               destination !== "KFLL"
             ) {
+
               continue;
             }
 
@@ -1402,6 +1334,7 @@ async function checkOpsAlerts() {
     !ALERTS_WEBHOOK ||
     !FLIGHTAWARE_API_KEY
   ) {
+
     return;
   }
 
@@ -1746,10 +1679,8 @@ async function checkOpsAlerts() {
 function getWeatherEmoji(forecast) {
 
   const text =
-    String(
-      forecast ||
-      ""
-    ).toLowerCase();
+    String(forecast || "")
+      .toLowerCase();
 
   if (
     text.includes("thunder") ||
@@ -1869,8 +1800,7 @@ async function getDailyFLLWeather() {
     const daytime =
       periods.find(
         period =>
-          period.isDaytime ===
-          true
+          period.isDaytime === true
       ) ||
       periods[0];
 
@@ -1882,13 +1812,11 @@ async function getDailyFLLWeather() {
     const nighttime =
       periods
         .slice(
-          daytimeIndex +
-          1
+          daytimeIndex + 1
         )
         .find(
           period =>
-            period.isDaytime ===
-            false
+            period.isDaytime === false
         );
 
     const high =
@@ -1993,6 +1921,10 @@ async function getDailyFLLWeather() {
   }
 }
 
+// ======================================================
+// BUILD WEATHER MESSAGE
+// ======================================================
+
 function buildDailyWeatherMessage(
   weather,
   title = "FLL DAILY WEATHER"
@@ -2011,6 +1943,10 @@ function buildDailyWeatherMessage(
     `${weather.emoji} **Forecast:** ${weather.forecast}`
   );
 }
+
+// ======================================================
+// AUTOMATIC WEATHER POST
+// ======================================================
 
 async function sendDailyWeatherUpdate() {
 
@@ -2038,6 +1974,62 @@ async function sendDailyWeatherUpdate() {
       "FLL DAILY WEATHER"
     )
   );
+}
+
+// ======================================================
+// EASTERN TIME
+// ======================================================
+
+function getEasternDateParts() {
+
+  const parts =
+    new Intl.DateTimeFormat(
+      "en-US",
+      {
+        timeZone:
+          "America/New_York",
+
+        year:
+          "numeric",
+
+        month:
+          "2-digit",
+
+        day:
+          "2-digit",
+
+        hour:
+          "2-digit",
+
+        minute:
+          "2-digit",
+
+        hour12:
+          false
+      }
+    ).formatToParts(
+      new Date()
+    );
+
+  const values = {};
+
+  for (
+    const part of parts
+  ) {
+
+    if (
+      part.type !==
+      "literal"
+    ) {
+
+      values[
+        part.type
+      ] =
+        part.value;
+    }
+  }
+
+  return values;
 }
 
 // ======================================================
@@ -2069,6 +2061,7 @@ async function checkScheduledWeatherUpdate() {
       hour
     )
   ) {
+
     return;
   }
 
@@ -2080,6 +2073,7 @@ async function checkScheduledWeatherUpdate() {
       scheduleId
     )
   ) {
+
     return;
   }
 
@@ -2130,6 +2124,7 @@ async function checkWeatherAlerts() {
   if (
     !WEATHER_WEBHOOK
   ) {
+
     return;
   }
 
@@ -2191,6 +2186,7 @@ async function checkWeatherAlerts() {
           event
         )
       ) {
+
         continue;
       }
 
@@ -2205,6 +2201,7 @@ async function checkWeatherAlerts() {
           id
         )
       ) {
+
         continue;
       }
 
@@ -2239,920 +2236,6 @@ async function checkWeatherAlerts() {
       error.response?.data ||
       error.message
     );
-  }
-}
-
-// ======================================================
-// ROUTE BOARD
-// ======================================================
-
-async function getRouteBoardFlights() {
-
-  if (
-    !FLIGHTAWARE_API_KEY
-  ) {
-    return null;
-  }
-
-  return await flightAwareGet(
-    "/airports/KFLL/flights",
-    {
-      airline:
-        "JBU",
-
-      max_pages:
-        ROUTE_BOARD_MAX_PAGES
-    }
-  );
-}
-
-function getRouteFlightKey(
-  flight
-) {
-
-  const origin =
-    airportCode(
-      flight.origin
-    );
-
-  const destination =
-    airportCode(
-      flight.destination
-    );
-
-  return (
-    flight.fa_flight_id ||
-    `${flightCallsign(
-      flight
-    )}-${origin}-${destination}-${flight.scheduled_off || flight.scheduled_on || flight.scheduled_out || flight.scheduled_in || ""}`
-  );
-}
-
-function mergeRouteFlight(
-  oldFlight,
-  newFlight
-) {
-
-  if (!oldFlight) {
-    return newFlight;
-  }
-
-  return {
-    ...oldFlight,
-    ...Object.fromEntries(
-      Object.entries(
-        newFlight
-      ).filter(
-        ([
-          key,
-          value
-        ]) =>
-          value !==
-          null &&
-          value !==
-          undefined
-      )
-    )
-  };
-}
-
-function routeSeverity(
-  route
-) {
-
-  if (
-    route.cancelled >
-      0 ||
-    route.diverted >
-      0
-  ) {
-    return 2;
-  }
-
-  if (
-    route.delayed >
-    0
-  ) {
-    return 1;
-  }
-
-  return 0;
-}
-
-function buildRouteStatus(
-  route
-) {
-
-  const details = [];
-
-  if (
-    route.cancelled >
-    0
-  ) {
-
-    details.push(
-      `${route.cancelled} CANCELLED`
-    );
-  }
-
-  if (
-    route.diverted >
-    0
-  ) {
-
-    details.push(
-      `${route.diverted} DIVERTED`
-    );
-  }
-
-  if (
-    route.delayed >
-    0
-  ) {
-
-    details.push(
-      `${route.delayed} DELAYED`
-    );
-  }
-
-  if (
-    route.cancelled >
-      0 ||
-    route.diverted >
-      0
-  ) {
-
-    return (
-      `🔴 ${details.join(
-        " • "
-      )}`
-    );
-  }
-
-  if (
-    route.delayed >
-    0
-  ) {
-
-    return (
-      `🟡 ${details.join(
-        " • "
-      )}`
-    );
-  }
-
-  return "🟢 NORMAL";
-}
-
-async function buildRouteBoard(
-  remainingOnly = false,
-  cutoffHour = null
-) {
-
-  const data =
-    await getRouteBoardFlights();
-
-  if (!data) {
-    return null;
-  }
-
-  const allFlights = [
-    ...(data.scheduled_arrivals || []),
-    ...(data.scheduled_departures || []),
-    ...(data.arrivals || []),
-    ...(data.departures || [])
-  ].filter(
-    isJetBlueFlight
-  );
-
-  // ==================================================
-  // TODAY IN EASTERN TIME
-  // ==================================================
-
-  function easternDateString(
-    timestamp
-  ) {
-
-    if (!timestamp) {
-      return null;
-    }
-
-    const date =
-      new Date(
-        timestamp
-      );
-
-    if (
-      Number.isNaN(
-        date.getTime()
-      )
-    ) {
-      return null;
-    }
-
-    return new Intl.DateTimeFormat(
-      "en-CA",
-      {
-        timeZone:
-          "America/New_York",
-
-        year:
-          "numeric",
-
-        month:
-          "2-digit",
-
-        day:
-          "2-digit"
-      }
-    ).format(
-      date
-    );
-  }
-
-  function easternHour(
-    timestamp
-  ) {
-
-    if (!timestamp) {
-      return null;
-    }
-
-    const date =
-      new Date(
-        timestamp
-      );
-
-    if (
-      Number.isNaN(
-        date.getTime()
-      )
-    ) {
-      return null;
-    }
-
-    const value =
-      new Intl.DateTimeFormat(
-        "en-US",
-        {
-          timeZone:
-            "America/New_York",
-
-          hour:
-            "2-digit",
-
-          hour12:
-            false
-        }
-      ).format(
-        date
-      );
-
-    return Number(
-      value
-    );
-  }
-
-  const today =
-    easternDateString(
-      new Date()
-    );
-
-  // ==================================================
-  // UNIQUE TODAY FLIGHTS
-  // ==================================================
-
-  const uniqueFlights =
-    new Map();
-
-  for (
-    const flight of allFlights
-  ) {
-
-    const origin =
-      airportCode(
-        flight.origin
-      );
-
-    const destination =
-      airportCode(
-        flight.destination
-      );
-
-    const isDeparture =
-      origin === "FLL" ||
-      origin === "KFLL";
-
-    const isArrival =
-      destination === "FLL" ||
-      destination === "KFLL";
-
-    if (
-      !isDeparture &&
-      !isArrival
-    ) {
-      continue;
-    }
-
-    const scheduledTime =
-      isDeparture
-        ? (
-            flight.scheduled_out ||
-            flight.scheduled_off
-          )
-        : (
-            flight.scheduled_in ||
-            flight.scheduled_on
-          );
-
-    const actualTime =
-      isDeparture
-        ? (
-            flight.actual_out ||
-            flight.actual_off
-          )
-        : (
-            flight.actual_in ||
-            flight.actual_on
-          );
-
-    const estimatedTime =
-      isDeparture
-        ? (
-            flight.estimated_out ||
-            flight.estimated_off
-          )
-        : (
-            flight.estimated_in ||
-            flight.estimated_on
-          );
-
-    const relevantTime =
-      scheduledTime ||
-      estimatedTime ||
-      actualTime;
-
-    if (
-      easternDateString(
-        relevantTime
-      ) !== today
-    ) {
-      continue;
-    }
-
-    // ==================================================
-    // REMAINING-FLIGHT FILTER
-    // ==================================================
-
-    if (
-      remainingOnly &&
-      cutoffHour !== null
-    ) {
-
-      const completed =
-        Boolean(
-          actualTime
-        );
-
-      // If already completed, don't show it
-      if (completed) {
-        continue;
-      }
-
-      const effectiveTime =
-        estimatedTime ||
-        scheduledTime;
-
-      const effectiveHour =
-        easternHour(
-          effectiveTime
-        );
-
-      /*
-        Keep a flight if:
-        - estimated/scheduled time is cutoff hour or later
-        OR
-        - its scheduled time has already passed but it
-          has NOT actually completed yet
-      */
-
-      const scheduledHour =
-        easternHour(
-          scheduledTime
-        );
-
-      const overdueButStillOpen =
-        scheduledHour !== null &&
-        scheduledHour <
-          cutoffHour &&
-        !completed;
-
-      const upcoming =
-        effectiveHour !== null &&
-        effectiveHour >=
-          cutoffHour;
-
-      if (
-        !overdueButStillOpen &&
-        !upcoming
-      ) {
-        continue;
-      }
-    }
-
-    const key =
-      flight.fa_flight_id ||
-      `${flightCallsign(
-        flight
-      )}-${origin}-${destination}-${scheduledTime || relevantTime}`;
-
-    if (
-      !uniqueFlights.has(
-        key
-      )
-    ) {
-
-      uniqueFlights.set(
-        key,
-        flight
-      );
-
-    } else {
-
-      uniqueFlights.set(
-        key,
-        {
-          ...uniqueFlights.get(
-            key
-          ),
-          ...flight
-        }
-      );
-    }
-  }
-
-  // ==================================================
-  // ROUTE TOTALS
-  // ==================================================
-
-  const routes =
-    new Map();
-
-  let departures = 0;
-  let arrivals = 0;
-
-  let delayed = 0;
-  let cancelled = 0;
-  let diverted = 0;
-
-  for (
-    const flight of uniqueFlights.values()
-  ) {
-
-    const origin =
-      airportCode(
-        flight.origin
-      );
-
-    const destination =
-      airportCode(
-        flight.destination
-      );
-
-    const isDeparture =
-      origin === "FLL" ||
-      origin === "KFLL";
-
-    const isArrival =
-      destination === "FLL" ||
-      destination === "KFLL";
-
-    const routeCode =
-      isDeparture
-        ? destination
-        : origin;
-
-    if (
-      !routeCode ||
-      routeCode === "N/A" ||
-      routeCode === "FLL" ||
-      routeCode === "KFLL"
-    ) {
-      continue;
-    }
-
-    if (
-      !routes.has(
-        routeCode
-      )
-    ) {
-
-      routes.set(
-        routeCode,
-        {
-          code:
-            routeCode,
-
-          dep:
-            0,
-
-          arr:
-            0,
-
-          delayed:
-            0,
-
-          cancelled:
-            0,
-
-          diverted:
-            0
-        }
-      );
-    }
-
-    const route =
-      routes.get(
-        routeCode
-      );
-
-    if (
-      isDeparture
-    ) {
-
-      route.dep++;
-      departures++;
-
-    } else if (
-      isArrival
-    ) {
-
-      route.arr++;
-      arrivals++;
-    }
-
-    const isCancelled =
-      flight.cancelled ===
-      true;
-
-    const isDiverted =
-      flight.diverted ===
-      true;
-
-    const delaySeconds =
-      Number(
-        isDeparture
-          ? (
-              flight.departure_delay ||
-              0
-            )
-          : (
-              flight.arrival_delay ||
-              0
-            )
-      );
-
-    const isDelayed =
-      !isCancelled &&
-      !isDiverted &&
-      Number.isFinite(
-        delaySeconds
-      ) &&
-      delaySeconds >=
-        MAJOR_DELAY_SECONDS;
-
-    if (
-      isCancelled
-    ) {
-
-      route.cancelled++;
-      cancelled++;
-    }
-
-    if (
-      isDiverted
-    ) {
-
-      route.diverted++;
-      diverted++;
-    }
-
-    if (
-      isDelayed
-    ) {
-
-      route.delayed++;
-      delayed++;
-    }
-  }
-
-  // ==================================================
-  // SORT ROUTES
-  // ==================================================
-
-  const sortedRoutes =
-    Array.from(
-      routes.values()
-    ).sort(
-      (
-        a,
-        b
-      ) => {
-
-        const severityDiff =
-          routeSeverity(
-            b
-          ) -
-          routeSeverity(
-            a
-          );
-
-        if (
-          severityDiff !==
-          0
-        ) {
-          return severityDiff;
-        }
-
-        const aTotal =
-          a.dep +
-          a.arr;
-
-        const bTotal =
-          b.dep +
-          b.arr;
-
-        if (
-          bTotal !==
-          aTotal
-        ) {
-
-          return (
-            bTotal -
-            aTotal
-          );
-        }
-
-        return a.code.localeCompare(
-          b.code
-        );
-      }
-    );
-
-  const routeLines =
-    sortedRoutes.map(
-      route => {
-
-        const code =
-          route.code.padEnd(
-            6,
-            " "
-          );
-
-        const dep =
-          String(
-            route.dep
-          ).padStart(
-            3,
-            " "
-          );
-
-        const arr =
-          String(
-            route.arr
-          ).padStart(
-            3,
-            " "
-          );
-
-        return (
-          `${code}${dep}   ${arr}   ${buildRouteStatus(
-            route
-          )}`
-        );
-      }
-    );
-
-  const totalFlights =
-    departures +
-    arrivals;
-
-  let boardLabel =
-    "FULL DAY";
-
-  let summaryLabel =
-    "TOTAL FLIGHTS";
-
-  if (
-    remainingOnly &&
-    cutoffHour === 13
-  ) {
-
-    boardLabel =
-      "1:00 PM • REMAINING TODAY";
-
-    summaryLabel =
-      "FLIGHTS REMAINING";
-  }
-
-  if (
-    remainingOnly &&
-    cutoffHour === 18
-  ) {
-
-    boardLabel =
-      "6:00 PM • REMAINING TONIGHT";
-
-    summaryLabel =
-      "FLIGHTS REMAINING";
-  }
-
-  return (
-    `🗺️ **JETBLUE • FLL FLIGHT BOARD**\n` +
-    `━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
-    `📅 **${formatBoardDate()} • ${boardLabel}**\n\n` +
-
-    "```text\n" +
-    "ROUTE  DEP   ARR   STATUS\n\n" +
-    routeLines.join(
-      "\n"
-    ) +
-    "\n```\n" +
-
-    `━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n` +
-    `🟢 NORMAL   🟡 DELAYS   🔴 DISRUPTED\n\n` +
-
-    `✈️ **${sortedRoutes.length} ROUTES**\n` +
-    `🛫 **${departures} DEPARTURES**\n` +
-    `🛬 **${arrivals} ARRIVALS**\n` +
-    `🔵 **${totalFlights} ${summaryLabel}**\n\n` +
-
-    `⚠️ **${delayed} DELAYED**\n` +
-    `❌ **${cancelled} CANCELLED**\n` +
-    `↪️ **${diverted} DIVERTED**\n\n` +
-
-    `📍 **KFLL • JETBLUE OPERATIONS**`
-  );
-}
-
-async function sendRouteBoardUpdate(
-  remainingOnly = false,
-  cutoffHour = null
-) {
-
-  if (
-    !ROUTE_BOARD_WEBHOOK
-  ) {
-    return;
-  }
-
-  const board =
-    await buildRouteBoard(
-      remainingOnly,
-      cutoffHour
-    );
-
-  if (!board) {
-
-    console.log(
-      "🗺️ Route board unavailable"
-    );
-
-    return;
-  }
-
-  await sendDiscord(
-    ROUTE_BOARD_WEBHOOK,
-    board
-  );
-}
-
-// ======================================================
-// 6 AM / 1 PM / 6 PM ROUTE BOARD POSTS
-// ======================================================
-
-async function checkScheduledRouteBoardUpdate() {
-
-  const now =
-    getEasternDateParts();
-
-  const hour =
-    Number(
-      now.hour
-    );
-
-  const minute =
-    Number(
-      now.minute
-    );
-
-  if (
-    minute !== 0 ||
-    ![
-      6,
-      13,
-      18
-    ].includes(
-      hour
-    )
-  ) {
-    return;
-  }
-
-  const scheduleId =
-    `${now.year}-${now.month}-${now.day}-${hour}`;
-
-  if (
-    scheduledRouteBoardUpdatesSent.has(
-      scheduleId
-    )
-  ) {
-    return;
-  }
-
-  scheduledRouteBoardUpdatesSent.set(
-    scheduleId,
-    Date.now()
-  );
-
-  // ==================================================
-  // 6 AM = FULL DAY
-  // ==================================================
-
-  if (
-    hour === 6
-  ) {
-
-    console.log(
-      "🗺️ Sending 6 AM full-day FLL route board"
-    );
-
-    await sendRouteBoardUpdate(
-      false,
-      null
-    );
-  }
-
-  // ==================================================
-  // 1 PM = REMAINING TODAY
-  // ==================================================
-
-  if (
-    hour === 13
-  ) {
-
-    console.log(
-      "🗺️ Sending 1 PM remaining FLL route board"
-    );
-
-    await sendRouteBoardUpdate(
-      true,
-      13
-    );
-  }
-
-  // ==================================================
-  // 6 PM = REMAINING TONIGHT
-  // ==================================================
-
-  if (
-    hour === 18
-  ) {
-
-    console.log(
-      "🗺️ Sending 6 PM remaining FLL route board"
-    );
-
-    await sendRouteBoardUpdate(
-      true,
-      18
-    );
-  }
-
-  const cutoff =
-    Date.now() -
-    48 *
-    60 *
-    60 *
-    1000;
-
-  for (
-    const [
-      id,
-      timestamp
-    ]
-    of scheduledRouteBoardUpdatesSent.entries()
-  ) {
-
-    if (
-      timestamp <
-      cutoff
-    ) {
-
-      scheduledRouteBoardUpdatesSent.delete(
-        id
-      );
-    }
   }
 }
 
@@ -3200,6 +2283,7 @@ async function checkKFLL() {
         plane.lat === undefined ||
         plane.lon === undefined
       ) {
+
         continue;
       }
 
@@ -3252,8 +2336,6 @@ async function checkKFLL() {
         )} NM`
       );
 
-      // FIRST OBSERVATION
-
       if (!previous) {
 
         aircraftState.set(
@@ -3272,8 +2354,6 @@ async function checkKFLL() {
 
         continue;
       }
-
-      // ARRIVAL
 
       const wasAirborne =
         previous.altitude > 500 ||
@@ -3302,8 +2382,6 @@ async function checkKFLL() {
           plane
         );
       }
-
-      // DEPARTURE
 
       const wasGround =
         previous.altitude <=
@@ -3354,8 +2432,6 @@ async function checkKFLL() {
         }
       );
     }
-
-    // CLEANUP
 
     for (
       const [
@@ -3472,12 +2548,6 @@ const slashCommands = [
     ),
 
   new SlashCommandBuilder()
-    .setName("routes")
-    .setDescription(
-      "Show the JetBlue FLL flight board"
-    ),
-
-  new SlashCommandBuilder()
     .setName("flight")
     .setDescription(
       "Look up a JetBlue flight"
@@ -3489,9 +2559,7 @@ const slashCommands = [
           .setDescription(
             "Flight number, for example 1200 or JBU1200"
           )
-          .setRequired(
-            true
-          )
+          .setRequired(true)
     ),
 
   new SlashCommandBuilder()
@@ -3572,6 +2640,7 @@ discordClient.on(
     if (
       !interaction.isChatInputCommand()
     ) {
+
       return;
     }
 
@@ -3596,7 +2665,6 @@ discordClient.on(
             `🚨 **Ops Alerts:** ${ALERTS_WEBHOOK ? "ONLINE" : "OFFLINE"}\n` +
             `📡 **Tracking:** ${TRACKING_WEBHOOK ? "ONLINE" : "OFFLINE"}\n` +
             `⛈️ **Weather:** ${WEATHER_WEBHOOK ? "ONLINE" : "OFFLINE"}\n` +
-            `🗺️ **Route Board:** ${ROUTE_BOARD_WEBHOOK ? "ONLINE" : "OFFLINE"}\n` +
             `🔵 **Operations:** ${OPERATIONS_WEBHOOK ? "ONLINE" : "OFFLINE"}\n` +
             `🔑 **FlightAware:** ${FLIGHTAWARE_API_KEY ? "CONNECTED" : "OFFLINE"}\n` +
             `⚡ **Arrival Poll:** 10 sec\n` +
@@ -3726,18 +2794,15 @@ discordClient.on(
           );
 
         if (
-          !Number.isFinite(
-            delay
-          )
+          !Number.isFinite(delay)
         ) {
+
           delay = 0;
         }
 
         const delayText =
           delay > 0
-            ? `+${formatMinutes(
-                delay
-              )} min`
+            ? `+${formatMinutes(delay)} min`
             : "ON TIME / N/A";
 
         const message =
@@ -3871,39 +2936,6 @@ discordClient.on(
       }
 
       // ==================================================
-      // /routes
-      // ==================================================
-
-      if (
-        interaction.commandName ===
-        "routes"
-      ) {
-
-        await interaction.deferReply({
-          ephemeral:
-            true
-        });
-
-        const board =
-          await buildRouteBoard();
-
-        if (!board) {
-
-          await interaction.editReply(
-            "❌ Unable to retrieve the JetBlue FLL route board right now."
-          );
-
-          return;
-        }
-
-        await interaction.editReply(
-          board
-        );
-
-        return;
-      }
-
-      // ==================================================
       // /help
       // ==================================================
 
@@ -3936,9 +2968,6 @@ discordClient.on(
             `☀️ **/weather**\n` +
             `Show FLL weather forecast\n\n` +
 
-            `🗺️ **/routes**\n` +
-            `Show JetBlue FLL flight board\n\n` +
-
             `🤖 **/help**\n` +
             `Show this menu\n\n` +
 
@@ -3950,10 +2979,6 @@ discordClient.on(
 
         return;
       }
-
-      // ==================================================
-      // UNKNOWN COMMAND SAFETY
-      // ==================================================
 
       await interaction.reply({
         content:
@@ -4088,10 +3113,6 @@ console.log(
 );
 
 console.log(
-  "🗺️ ROUTE BOARD: 6 AM / 1 PM / 6 PM ET"
-);
-
-console.log(
   "🔵 OPERATIONS / LAST DEPARTURE ENABLED"
 );
 
@@ -4124,10 +3145,6 @@ console.log(
 );
 
 console.log(
-  "   /routes"
-);
-
-console.log(
   "   /help"
 );
 
@@ -4157,11 +3174,6 @@ console.log(
 console.log(
   "📢 Weather:",
   !!WEATHER_WEBHOOK
-);
-
-console.log(
-  "📢 Route Board:",
-  !!ROUTE_BOARD_WEBHOOK
 );
 
 console.log(
@@ -4257,20 +3269,5 @@ checkScheduledWeatherUpdate();
 
 setInterval(
   checkScheduledWeatherUpdate,
-  60000
-);
-
-// ======================================================
-// SCHEDULED ROUTE BOARD
-// ======================================================
-
-// 6:00 AM ET
-// 1:00 PM ET
-// 6:00 PM ET
-
-checkScheduledRouteBoardUpdate();
-
-setInterval(
-  checkScheduledRouteBoardUpdate,
   60000
 );
